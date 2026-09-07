@@ -1,0 +1,3405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#f59e0b" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Kheyal" />
+  <title>Kheyal - Notes & Voice Memos</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23f59e0b'/%3E%3Ctext x='50' y='69' font-size='52' text-anchor='middle' fill='white' font-family='Georgia,serif' font-weight='700'%3E%E0%A6%96%3C/text%3E%3C/svg%3E">
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            accent: {
+              DEFAULT: 'var(--accent-color, #f59e0b)',
+              hover: 'var(--accent-hover, #d97706)',
+              light: 'var(--accent-light, rgba(245, 158, 11, 0.12))',
+              ring: 'var(--accent-ring, rgba(245, 158, 11, 0.35))',
+            }
+          }
+        },
+      },
+    }
+  </script>
+
+  <!-- React 18 & Babel Standalone CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.0/babel.min.js"></script>
+
+  <style>
+    :root {
+      --accent-color: #f59e0b;
+      --accent-hover: #d97706;
+      --accent-light: rgba(245, 158, 11, 0.12);
+      --accent-ring: rgba(245, 158, 11, 0.35);
+      --sat: env(safe-area-inset-top, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+    }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      overscroll-behavior-y: none;
+    }
+    input, textarea {
+      user-select: text;
+    }
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(156, 163, 175, 0.35);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(156, 163, 175, 0.65);
+    }
+    @keyframes popIn {
+      0% { opacity: 0; transform: scale(0.96) translateY(4px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @keyframes pulseGlow {
+      0% { box-shadow: 0 0 0 0 var(--accent-ring); }
+      70% { box-shadow: 0 0 0 20px rgba(245, 158, 11, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+    }
+    .animate-popIn {
+      animation: popIn 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .animate-glowPulse {
+      animation: pulseGlow 1.6s infinite;
+    }
+  </style>
+</head>
+<body class="bg-neutral-50 dark:bg-[#121316] text-neutral-900 dark:text-neutral-100 min-h-screen transition-colors duration-200 antialiased">
+  <div id="root">
+    <div class="min-h-screen flex flex-col items-center justify-center p-6 text-center space-y-4">
+      <div class="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center animate-pulse shadow-lg shadow-amber-500/25">
+        <svg class="w-6 h-6 fill-white" viewBox="0 0 24 24">
+          <path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/>
+        </svg>
+      </div>
+      <p class="text-xs font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">Starting Kheyal...</p>
+    </div>
+  </div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useRef, useMemo, useCallback, Component } = React;
+
+    const APP_VERSION = "1.2.1";
+    const GITHUB_REPO = "mahfuz-joy/kheyal";
+    const DB_NAME = 'ModernNotesDB';
+    const DB_VERSION = 4;
+    const STORE_NAME = 'notes';
+    const FALLBACK_KEY = 'modern_notes_fallback_data_v4';
+    const LABELS_KEY = 'notes_app_custom_labels';
+    const ON_THIS_DAY_KEY = 'notes_show_on_this_day';
+
+    // Top-Level Error Boundary
+    class AppErrorBoundary extends Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false };
+      }
+      static getDerivedStateFromError() {
+        return { hasError: true };
+      }
+      componentDidCatch(error, errorInfo) {
+        console.error("Kheyal App Boundary Error:", error, errorInfo);
+      }
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div className="min-h-screen flex items-center justify-center p-6 bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-white">
+              <div className="max-w-md w-full p-6 rounded-3xl bg-white dark:bg-neutral-800 shadow-2xl border border-red-200 dark:border-red-900 text-center space-y-4">
+                <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto text-xl font-bold">⚠️</div>
+                <h2 className="text-base font-bold">Something went wrong</h2>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">Your notes are safely preserved. Click below to reload.</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs shadow-md transition"
+                >
+                  Reload Application
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
+
+    function openDatabase() {
+      return new Promise((resolve, reject) => {
+        if (!window.indexedDB) return reject(new Error('IndexedDB not supported'));
+        try {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
+          request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+              const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+              store.createIndex('createdAt', 'createdAt', { unique: false });
+              store.createIndex('updatedAt', 'updatedAt', { unique: false });
+              store.createIndex('reminder', 'reminder', { unique: false });
+            }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }
+
+    function syncToFallback(notes) {
+      try {
+        const serialized = notes.map(n => {
+          const c = { ...n };
+          delete c.audioBlob;
+          return c;
+        });
+        localStorage.setItem(FALLBACK_KEY, JSON.stringify(serialized));
+      } catch (e) {}
+    }
+
+    function getFallbackNotes() {
+      try {
+        const raw = localStorage.getItem(FALLBACK_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    async function dbGetAllNotes() {
+      try {
+        const db = await openDatabase();
+        return new Promise((resolve) => {
+          const tx = db.transaction(STORE_NAME, 'readonly');
+          const store = tx.objectStore(STORE_NAME);
+          const request = store.getAll();
+          request.onsuccess = () => {
+            const result = request.result || [];
+            syncToFallback(result);
+            resolve(result);
+          };
+          request.onerror = () => resolve(getFallbackNotes());
+        });
+      } catch (e) {
+        return getFallbackNotes();
+      }
+    }
+
+    async function dbSaveNote(note) {
+      try {
+        const db = await openDatabase();
+        return new Promise((resolve) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          const store = tx.objectStore(STORE_NAME);
+          store.put(note);
+          tx.oncomplete = () => resolve(note);
+          tx.onerror = () => resolve(note);
+        });
+      } catch (e) {
+        return note;
+      }
+    }
+
+    async function dbDeleteNotePermanently(id) {
+      try {
+        const db = await openDatabase();
+        return new Promise((resolve) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          const store = tx.objectStore(STORE_NAME);
+          store.delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        });
+      } catch (e) {}
+    }
+
+    async function blobToBase64(blob) {
+      if (!blob) return null;
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    async function base64ToBlob(base64Data) {
+      if (!base64Data) return null;
+      try {
+        const res = await fetch(base64Data);
+        return await res.blob();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // Audio service adapter (easy to swap for Capacitor native microphone plugin)
+    const AudioService = {
+      async requestMicrophoneStream() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('Microphone API not supported in this environment.');
+        }
+        return await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+      }
+    };
+
+    const ACCENT_COLORS = [
+      { id: 'amber', name: 'Amber', color: '#f59e0b', hover: '#d97706', light: 'rgba(245, 158, 11, 0.12)', ring: 'rgba(245, 158, 11, 0.35)' },
+      { id: 'blue', name: 'Blue', color: '#2563eb', hover: '#1d4ed8', light: 'rgba(37, 99, 235, 0.12)', ring: 'rgba(37, 99, 235, 0.35)' },
+      { id: 'rose', name: 'Rose', color: '#f43f5e', hover: '#e11d48', light: 'rgba(244, 63, 94, 0.12)', ring: 'rgba(244, 63, 94, 0.35)' },
+      { id: 'emerald', name: 'Emerald', color: '#10b981', hover: '#059669', light: 'rgba(16, 185, 129, 0.12)', ring: 'rgba(16, 185, 129, 0.35)' },
+      { id: 'violet', name: 'Violet', color: '#8b5cf6', hover: '#7c3aed', light: 'rgba(139, 92, 246, 0.12)', ring: 'rgba(139, 92, 246, 0.35)' },
+    ];
+
+    const COLOR_OPTIONS = [
+      { id: 'default', name: 'Default', lightClass: 'bg-white border-neutral-200/80 text-neutral-800 shadow-sm', darkClass: 'bg-[#18191d] border-neutral-800/80 text-neutral-100 shadow-sm', swatch: 'bg-white border-neutral-300 dark:bg-neutral-800 dark:border-neutral-700' },
+      { id: 'coral', name: 'Coral', lightClass: 'bg-rose-50/90 border-rose-200 text-rose-950', darkClass: 'bg-rose-950/30 border-rose-900/40 text-rose-100', swatch: 'bg-rose-100 border-rose-300 dark:bg-rose-900' },
+      { id: 'peach', name: 'Peach', lightClass: 'bg-orange-50/90 border-orange-200 text-orange-950', darkClass: 'bg-orange-950/30 border-orange-900/40 text-orange-100', swatch: 'bg-orange-100 border-orange-300 dark:bg-orange-900' },
+      { id: 'sand', name: 'Sand', lightClass: 'bg-amber-50/90 border-amber-200 text-amber-950', darkClass: 'bg-amber-950/30 border-amber-900/40 text-amber-100', swatch: 'bg-amber-100 border-amber-300 dark:bg-amber-900' },
+      { id: 'mint', name: 'Mint', lightClass: 'bg-emerald-50/90 border-emerald-200 text-emerald-950', darkClass: 'bg-emerald-950/30 border-emerald-900/40 text-emerald-100', swatch: 'bg-emerald-100 border-emerald-300 dark:bg-emerald-900' },
+      { id: 'sage', name: 'Sage', lightClass: 'bg-teal-50/90 border-teal-200 text-teal-950', darkClass: 'bg-teal-950/30 border-teal-900/40 text-teal-100', swatch: 'bg-teal-100 border-teal-300 dark:bg-teal-900' },
+      { id: 'fog', name: 'Fog', lightClass: 'bg-sky-50/90 border-sky-200 text-sky-950', darkClass: 'bg-sky-950/30 border-sky-900/40 text-sky-100', swatch: 'bg-sky-100 border-sky-300 dark:bg-sky-900' },
+      { id: 'dusk', name: 'Dusk', lightClass: 'bg-indigo-50/90 border-indigo-200 text-indigo-950', darkClass: 'bg-indigo-950/30 border-indigo-900/40 text-indigo-100', swatch: 'bg-indigo-100 border-indigo-300 dark:bg-indigo-900' },
+      { id: 'blossom', name: 'Blossom', lightClass: 'bg-purple-50/90 border-purple-200 text-purple-950', darkClass: 'bg-purple-950/30 border-purple-900/40 text-purple-100', swatch: 'bg-purple-100 border-purple-300 dark:bg-purple-900' }
+    ];
+
+    const EMOJI_MOODS = ['💡', '❤️', '🎯', '📌', '🚀', '☕'];
+
+    const TEMPLATES = [
+      {
+        id: 'meeting',
+        name: 'Meeting Notes',
+        type: 'text',
+        title: 'Meeting Notes: [Topic]',
+        content: '📅 Date: ' + new Date().toLocaleDateString() + '\n👥 Attendees:\n- \n\n🎯 Objectives:\n1. \n\n📝 Discussion Points:\n- \n\n✅ Action Items:\n- [ ] Follow up on '
+      },
+      {
+        id: 'journal',
+        name: 'Daily Journal',
+        type: 'text',
+        title: 'Daily Reflection - ' + new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
+        content: '🌟 What went well today?\n- \n\n💡 What did I learn?\n- \n\n🧘 Gratitude:\n1. \n2. \n3. '
+      },
+      {
+        id: 'shopping',
+        name: 'Shopping List',
+        type: 'checklist',
+        title: 'Groceries & Supplies',
+        checklist: [
+          { id: 's1', text: 'Fresh fruits & vegetables', checked: false },
+          { id: 's2', text: 'Milk / Almond milk', checked: false },
+          { id: 's3', text: 'Whole grain bread', checked: false },
+          { id: 's4', text: 'Coffee beans', checked: false }
+        ]
+      },
+      {
+        id: 'packing',
+        name: 'Travel Packing List',
+        type: 'checklist',
+        title: 'Packing Checklist',
+        checklist: [
+          { id: 'p1', text: 'Passport / ID & Wallet', checked: false },
+          { id: 'p2', text: 'Phone charger & Power bank', checked: false },
+          { id: 'p3', text: 'Toothbrush & Toiletries', checked: false },
+          { id: 'p4', text: 'Headphones / Earbuds', checked: false }
+        ]
+      },
+      {
+        id: 'ideadump',
+        name: 'Idea Dump',
+        type: 'text',
+        title: 'Quick Brain Dump 💡',
+        content: 'Core Idea:\n- \n\nWhy it matters:\n- \n\nNext Steps:\n1. \n2. '
+      }
+    ];
+
+    function getColorClass(colorId, isDark) {
+      const found = COLOR_OPTIONS.find((c) => c.id === colorId) || COLOR_OPTIONS[0];
+      return isDark ? found.darkClass : found.lightClass;
+    }
+
+    function formatTime(sec) {
+      if (isNaN(sec) || sec < 0) return '00:00';
+      const minutes = Math.floor(sec / 60);
+      const seconds = Math.floor(sec % 60);
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    function formatReminderDate(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return '';
+      const now = new Date();
+      const isToday = d.toDateString() === now.toDateString();
+      const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (isToday) return `Today, ${timeStr}`;
+      return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
+    }
+
+    // Compares two version strings like "1.2.0" vs "1.10.0" numerically, part by part,
+    // instead of a plain string match which breaks on things like "1.2" vs "1.2.0".
+    function compareVersions(v1, v2) {
+      if (!v1 || !v2) return 0;
+      const parse = (v) => String(v).replace(/^v/i, '').trim().split(/[.\-+]/).map((x) => parseInt(x, 10) || 0);
+      const p1 = parse(v1);
+      const p2 = parse(v2);
+      const max = Math.max(p1.length, p2.length);
+      for (let i = 0; i < max; i++) {
+        const a = p1[i] || 0;
+        const b = p2[i] || 0;
+        if (a > b) return 1;
+        if (a < b) return -1;
+      }
+      return 0;
+    }
+
+    // Clean, crisp standard Feather/Lucide-style SVG Icons (completely fixing double-stroke mic issues)
+    const Icons = {
+      Search: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+      ),
+      // Clean, single-stroke, crisp microphone
+      Mic: ({ className = "w-4 h-4" }) => (
+        <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="9" y="2" width="6" height="11" rx="3" />
+          <path d="M5 10a7 7 0 0 0 14 0" />
+          <line x1="12" y1="17" x2="12" y2="21" />
+          <line x1="8" y1="21" x2="16" y2="21" />
+        </svg>
+      ),
+      Pin: ({ className = "w-4 h-4", filled = false }) => (
+        <svg className={className} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="17" x2="12" y2="22" />
+          <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A2 2 0 0 1 15 10.76V6h1a1 1 0 0 0 0-2H8a1 1 0 0 0 0 2h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.89A2 2 0 0 0 5 15.24V17z" />
+        </svg>
+      ),
+      Archive: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="21 8 21 21 3 21 3 8" />
+          <rect x="1" y="3" width="22" height="5" />
+          <line x1="10" y1="12" x2="14" y2="12" />
+        </svg>
+      ),
+      Trash: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        </svg>
+      ),
+      Palette: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+          <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+          <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+          <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+          <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
+        </svg>
+      ),
+      Bell: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+      ),
+      Tag: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+          <line x1="7" y1="7" x2="7.01" y2="7" />
+        </svg>
+      ),
+      Brush: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z" />
+          <path d="M9 8c-2 3-4 3.5-7 4l8 8c.5-3 1-5 4-7" />
+          <path d="M14.5 17.5 4.5 15" />
+        </svg>
+      ),
+      Checklist: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 11 12 14 22 4" />
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+        </svg>
+      ),
+      Image: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
+        </svg>
+      ),
+      MoreVertical: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="12" cy="5" r="1" />
+          <circle cx="12" cy="19" r="1" />
+        </svg>
+      ),
+      NotesLogo: ({ className = "w-5 h-5" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 18h6" />
+          <path d="M10 22h4" />
+          <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
+        </svg>
+      ),
+      Settings: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+      ),
+      Check: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      ),
+      Play: ({ className = "w-4 h-4" }) => (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="5 3 19 12 5 21 5 3" />
+        </svg>
+      ),
+      Pause: ({ className = "w-4 h-4" }) => (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="4" width="4" height="16" rx="1" />
+          <rect x="14" y="4" width="4" height="16" rx="1" />
+        </svg>
+      ),
+      Stop: ({ className = "w-4 h-4" }) => (
+        <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+      ),
+      Close: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      ),
+      Expand: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="15 3 21 3 21 9" />
+          <polyline points="9 21 3 21 3 15" />
+          <line x1="21" y1="3" x2="14" y2="10" />
+          <line x1="3" y1="21" x2="10" y2="14" />
+        </svg>
+      ),
+      Template: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="3" y1="9" x2="21" y2="9" />
+          <line x1="9" y1="21" x2="9" y2="9" />
+        </svg>
+      ),
+      Share: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="18" cy="5" r="3" />
+          <circle cx="6" cy="12" r="3" />
+          <circle cx="18" cy="19" r="3" />
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+        </svg>
+      ),
+      Grid: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+        </svg>
+      ),
+      List: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6" />
+          <line x1="8" y1="12" x2="21" y2="12" />
+          <line x1="8" y1="18" x2="21" y2="18" />
+          <line x1="3" y1="6" x2="3.01" y2="6" />
+          <line x1="3" y1="12" x2="3.01" y2="12" />
+          <line x1="3" y1="18" x2="3.01" y2="18" />
+        </svg>
+      ),
+      Command: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z" />
+        </svg>
+      ),
+      Undo: ({ className = "w-4 h-4" }) => (
+        <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="1 4 1 10 7 10" />
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+        </svg>
+      )
+    };
+
+    // Live Waveform Visualizer for real-time microphone analysis
+    function LiveWaveformVisualizer({ analyser, isRecording, isPaused }) {
+      const canvasRef = useRef(null);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let animId;
+        const bufferLength = analyser ? analyser.frequencyBinCount : 64;
+        const dataArray = new Uint8Array(bufferLength);
+
+        const renderWave = () => {
+          animId = requestAnimationFrame(renderWave);
+          const width = canvas.width;
+          const height = canvas.height;
+          ctx.clearRect(0, 0, width, height);
+
+          if (!analyser || isPaused || !isRecording) {
+            // Idle smooth center line
+            ctx.beginPath();
+            ctx.moveTo(0, height / 2);
+            ctx.lineTo(width, height / 2);
+            ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            return;
+          }
+
+          analyser.getByteFrequencyData(dataArray);
+
+          const barCount = 36;
+          const barWidth = 4;
+          const step = Math.floor(bufferLength / barCount);
+          const totalBarsWidth = barCount * barWidth;
+          const gap = (width - totalBarsWidth) / (barCount + 1);
+
+          for (let i = 0; i < barCount; i++) {
+            const val = dataArray[i * step] || 0;
+            const percent = val / 255;
+            const barHeight = Math.max(4, percent * (height - 12));
+            const x = gap + i * (barWidth + gap);
+            const y = (height - barHeight) / 2;
+
+            const grad = ctx.createLinearGradient(0, y, 0, y + barHeight);
+            grad.addColorStop(0, '#f59e0b');
+            grad.addColorStop(1, '#d97706');
+
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            if (ctx.roundRect) {
+              ctx.roundRect(x, y, barWidth, barHeight, 2);
+            } else {
+              ctx.rect(x, y, barWidth, barHeight);
+            }
+            ctx.fill();
+          }
+        };
+
+        renderWave();
+        return () => cancelAnimationFrame(animId);
+      }, [analyser, isRecording, isPaused]);
+
+      return (
+        <canvas
+          ref={canvasRef}
+          width={360}
+          height={70}
+          className="w-full h-16 rounded-2xl bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/15"
+        />
+      );
+    }
+
+    function DrawingModal({ isOpen, onClose, onSaveDrawing }) {
+      const canvasRef = useRef(null);
+      const [isDrawing, setIsDrawing] = useState(false);
+      const [brushColor, setBrushColor] = useState('#18181b');
+      const [brushSize, setBrushSize] = useState(4);
+      const [history, setHistory] = useState([]);
+
+      useEffect(() => {
+        if (!isOpen) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        canvas.width = canvas.parentElement.clientWidth || 520;
+        canvas.height = 340;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        setHistory([canvas.toDataURL()]);
+      }, [isOpen]);
+
+      const startDraw = (e) => {
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        ctx.beginPath();
+        ctx.moveTo(clientX - rect.left, clientY - rect.top);
+        setIsDrawing(true);
+      };
+
+      const draw = (e) => {
+        if (!isDrawing) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        const rect = canvas.getBoundingClientRect();
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        ctx.lineTo(clientX - rect.left, clientY - rect.top);
+        ctx.strokeStyle = brushColor;
+        ctx.lineWidth = brushSize;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+      };
+
+      const stopDraw = () => {
+        if (!isDrawing) return;
+        setIsDrawing(false);
+        const canvas = canvasRef.current;
+        if (canvas) {
+          setHistory((prev) => [...prev.slice(-15), canvas.toDataURL()]);
+        }
+      };
+
+      const handleUndo = () => {
+        if (history.length <= 1) return;
+        const prev = history[history.length - 2];
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          setHistory(history.slice(0, -1));
+        };
+        img.src = prev;
+      };
+
+      const handleSave = () => {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          onSaveDrawing(canvas.toDataURL('image/png'));
+          onClose();
+        }
+      };
+
+      if (!isOpen) return null;
+      const colors = ['#18181b', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ffffff'];
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+          <div className="w-full max-w-lg bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-5 flex flex-col gap-4">
+            <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center gap-2 font-semibold text-sm">
+                <Icons.Brush className="w-4 h-4 text-amber-500" />
+                <span>Draw / Sketch</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={handleUndo} className="px-2.5 py-1 text-xs rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition">
+                  Undo
+                </button>
+                <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-600 transition">
+                  <Icons.Close className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="w-full bg-white rounded-2xl overflow-hidden border border-neutral-200 shadow-inner flex justify-center">
+              <canvas
+                ref={canvasRef}
+                onMouseDown={startDraw}
+                onMouseMove={draw}
+                onMouseUp={stopDraw}
+                onTouchStart={startDraw}
+                onTouchMove={draw}
+                onTouchEnd={stopDraw}
+                className="touch-none cursor-crosshair"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <div className="flex items-center gap-2">
+                {colors.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setBrushColor(c)}
+                    style={{ backgroundColor: c }}
+                    className={`w-6 h-6 rounded-full border border-neutral-300 transition ${brushColor === c ? 'scale-125 ring-2 ring-amber-500' : ''}`}
+                    title={c === '#ffffff' ? 'Eraser' : c}
+                  />
+                ))}
+                <div className="w-px h-4 bg-neutral-200 dark:bg-neutral-800 mx-1" />
+                {[2, 5, 10].map((sz) => (
+                  <button
+                    key={sz}
+                    onClick={() => setBrushSize(sz)}
+                    className={`w-6 h-6 rounded-md text-[11px] font-bold flex items-center justify-center ${brushSize === sz ? 'bg-amber-500 text-white' : 'bg-neutral-100 dark:bg-neutral-800'}`}
+                  >
+                    {sz === 2 ? 'S' : sz === 5 ? 'M' : 'L'}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={handleSave}
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-medium text-xs shadow-md shadow-amber-500/25 transition active:scale-95"
+              >
+                Insert Drawing
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ZenFocusModal({ isOpen, onClose, title, content, onSaveContent }) {
+      const [text, setText] = useState(content || '');
+      const [zenTitle, setZenTitle] = useState(title || '');
+
+      useEffect(() => {
+        setText(content || '');
+        setZenTitle(title || '');
+      }, [content, title, isOpen]);
+
+      if (!isOpen) return null;
+
+      const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+      const chars = text.length;
+
+      return (
+        <div className="fixed inset-0 z-50 bg-neutral-950/95 backdrop-blur-xl text-neutral-100 flex flex-col p-6 sm:p-12 animate-popIn">
+          <div className="max-w-3xl w-full mx-auto flex items-center justify-between pb-6 border-b border-neutral-800">
+            <div className="flex items-center gap-3">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="text-xs font-semibold uppercase tracking-widest text-neutral-400">Zen Focus Mode</span>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-neutral-400 font-mono">
+              <span>{words} words</span>
+              <span>{chars} chars</span>
+              <button
+                onClick={() => {
+                  onSaveContent(zenTitle, text);
+                  onClose();
+                }}
+                className="px-4 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-medium transition"
+              >
+                Exit Focus (Esc)
+              </button>
+            </div>
+          </div>
+
+          <div className="max-w-3xl w-full mx-auto flex-1 flex flex-col py-8 overflow-y-auto">
+            <input
+              type="text"
+              value={zenTitle}
+              onChange={(e) => setZenTitle(e.target.value)}
+              placeholder="Untitled..."
+              className="text-2xl sm:text-3xl font-bold bg-transparent outline-none mb-6 placeholder-neutral-600"
+            />
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Write your stream of consciousness..."
+              className="flex-1 w-full bg-transparent text-base sm:text-lg leading-relaxed resize-none outline-none placeholder-neutral-600 font-serif selection:bg-amber-500/30"
+              autoFocus
+            />
+          </div>
+        </div>
+      );
+    }
+
+    function CommandPaletteModal({ isOpen, onClose, onSelectAction, notes, onOpenNote }) {
+      const [search, setSearch] = useState('');
+      const [selectedIndex, setSelectedIndex] = useState(0);
+
+      const staticActions = [
+        { id: 'act_new_text', name: 'Create new text note', icon: '📝', action: () => onSelectAction('new_text') },
+        { id: 'act_new_check', name: 'Create new checklist', icon: '✅', action: () => onSelectAction('new_checklist') },
+        { id: 'act_new_voice', name: 'Record voice memo', icon: '🎙️', action: () => onSelectAction('new_voice') },
+        { id: 'act_toggle_theme', name: 'Toggle dark / light mode', icon: '🌓', action: () => onSelectAction('toggle_theme') },
+        { id: 'act_view_archive', name: 'Go to Archive', icon: '📥', action: () => onSelectAction('view_archive') },
+        { id: 'act_view_trash', name: 'Go to Trash', icon: '🗑️', action: () => onSelectAction('view_trash') },
+        { id: 'act_open_settings', name: 'Open Settings & Backup', icon: '⚙️', action: () => onSelectAction('open_settings') },
+      ];
+
+      const matchingNotes = useMemo(() => {
+        if (!search.trim()) return [];
+        const q = search.toLowerCase();
+        return notes.filter(n => (n.title || '').toLowerCase().includes(q) || (n.content || '').toLowerCase().includes(q)).slice(0, 5);
+      }, [search, notes]);
+
+      const items = useMemo(() => {
+        if (!search.trim()) return staticActions;
+        const q = search.toLowerCase();
+        const filteredActions = staticActions.filter(a => a.name.toLowerCase().includes(q));
+        const noteItems = matchingNotes.map(n => ({
+          id: n.id,
+          name: n.title || 'Untitled Note',
+          icon: n.type === 'voice' ? '🎙️' : n.type === 'checklist' ? '✅' : '📄',
+          action: () => onOpenNote(n)
+        }));
+        return [...filteredActions, ...noteItems];
+      }, [search, matchingNotes]);
+
+      useEffect(() => {
+        setSelectedIndex(0);
+      }, [items]);
+
+      useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedIndex((prev) => (prev + 1) % items.length);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedIndex((prev) => (prev - 1 + items.length) % items.length);
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (items[selectedIndex]) {
+              items[selectedIndex].action();
+              onClose();
+            }
+          } else if (e.key === 'Escape') {
+            onClose();
+          }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [isOpen, items, selectedIndex, onClose]);
+
+      if (!isOpen) return null;
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-black/50 backdrop-blur-sm animate-popIn">
+          <div className="w-full max-w-lg rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl overflow-hidden">
+            <div className="flex items-center px-4 py-3.5 border-b border-neutral-100 dark:border-neutral-800 gap-3">
+              <Icons.Command className="w-4 h-4 text-neutral-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Type a command or search notes..."
+                className="w-full bg-transparent text-sm outline-none placeholder-neutral-400"
+                autoFocus
+              />
+              <span className="text-[10px] bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded text-neutral-400">ESC</span>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto p-2 space-y-1">
+              {items.length === 0 ? (
+                <div className="p-4 text-center text-xs text-neutral-400">No matching commands or notes</div>
+              ) : (
+                items.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    onClick={() => { item.action(); onClose(); }}
+                    className={`flex items-center justify-between p-2.5 px-3 rounded-2xl text-xs cursor-pointer transition ${
+                      selectedIndex === idx ? 'bg-amber-500 text-white font-semibold' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 truncate">
+                      <span>{item.icon}</span>
+                      <span className="truncate">{item.name}</span>
+                    </div>
+                    {selectedIndex === idx && <span className="text-[10px] opacity-75">Press Enter</span>}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function EditLabelsModal({ isOpen, onClose, labels, onAddLabel, onRenameLabel, onDeleteLabel }) {
+      const [newLabelText, setNewLabelText] = useState('');
+      const [editingIndex, setEditingIndex] = useState(null);
+      const [editingText, setEditingText] = useState('');
+
+      if (!isOpen) return null;
+
+      const handleAdd = () => {
+        const trimmed = newLabelText.trim();
+        if (trimmed && !labels.includes(trimmed)) {
+          onAddLabel(trimmed);
+          setNewLabelText('');
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+          <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-5 shadow-2xl space-y-4 text-neutral-900 dark:text-neutral-100">
+            <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center gap-2">
+                <Icons.Tag className="w-4 h-4 text-amber-500" />
+                <h3 className="font-bold text-sm">Edit Labels</h3>
+              </div>
+              <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+                <Icons.Close className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Create new label */}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Create new label..."
+                value={newLabelText}
+                onChange={(e) => setNewLabelText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+                className="flex-1 px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-transparent focus:border-amber-500 text-xs outline-none"
+              />
+              <button
+                onClick={handleAdd}
+                className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs transition"
+              >
+                Add
+              </button>
+            </div>
+
+            {/* Existing labels list */}
+            <div className="max-h-60 overflow-y-auto space-y-2 py-1 pr-1">
+              {labels.length === 0 ? (
+                <p className="text-xs text-neutral-400 text-center py-4 italic">No labels created yet</p>
+              ) : (
+                labels.map((lbl, idx) => (
+                  <div key={idx} className="flex items-center justify-between gap-2 p-2 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/60 group transition">
+                    {editingIndex === idx ? (
+                      <div className="flex items-center gap-2 flex-1">
+                        <input
+                          type="text"
+                          value={editingText}
+                          onChange={(e) => setEditingText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              if (editingText.trim()) onRenameLabel(lbl, editingText.trim());
+                              setEditingIndex(null);
+                            }
+                          }}
+                          className="flex-1 px-2.5 py-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-xs outline-none border border-amber-500"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => {
+                            if (editingText.trim()) onRenameLabel(lbl, editingText.trim());
+                            setEditingIndex(null);
+                          }}
+                          className="text-xs text-emerald-500 hover:underline font-semibold"
+                        >
+                          Save
+                        </button>
+                        <button onClick={() => setEditingIndex(null)} className="text-xs text-neutral-400 hover:underline">
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2.5 truncate">
+                          <Icons.Tag className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                          <span className="text-xs font-medium truncate">{lbl}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 opacity-75 group-hover:opacity-100">
+                          <button
+                            onClick={() => { setEditingIndex(idx); setEditingText(lbl); }}
+                            className="p-1 hover:text-amber-500 text-neutral-400 transition"
+                            title="Rename"
+                          >
+                            <Icons.Brush className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => onDeleteLabel(lbl)}
+                            className="p-1 hover:text-red-500 text-neutral-400 transition"
+                            title="Delete"
+                          >
+                            <Icons.Trash className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-neutral-100 dark:border-neutral-800">
+              <button
+                onClick={onClose}
+                className="px-4 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-xs font-semibold"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function VoiceRecorderModal({ isDark, onClose, onSaveVoiceNote }) {
+      const [recordingState, setRecordingState] = useState('recording'); // recording, paused, stopped
+      const [elapsed, setElapsed] = useState(0);
+      const [audioBlob, setAudioBlob] = useState(null);
+      const [audioUrl, setAudioUrl] = useState(null);
+      const [noteTitle, setNoteTitle] = useState('');
+      const [transcript, setTranscript] = useState('');
+      const [speechSupported, setSpeechSupported] = useState(true);
+
+      const mediaRecorderRef = useRef(null);
+      const audioChunksRef = useRef([]);
+      const timerRef = useRef(null);
+      const audioContextRef = useRef(null);
+      const analyserRef = useRef(null);
+      const speechRecognitionRef = useRef(null);
+
+      useEffect(() => {
+        async function start() {
+          try {
+            const stream = await AudioService.requestMicrophoneStream();
+
+            // Web Audio Analyser
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            const audioCtx = new AudioCtx();
+            audioContextRef.current = audioCtx;
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 128;
+            analyserRef.current = analyser;
+            const source = audioCtx.createMediaStreamSource(stream);
+            source.connect(analyser);
+
+            // MediaRecorder
+            const mr = new MediaRecorder(stream);
+            mediaRecorderRef.current = mr;
+            audioChunksRef.current = [];
+            mr.ondataavailable = (e) => {
+              if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+            mr.onstop = () => {
+              const blob = new Blob(audioChunksRef.current, { type: mr.mimeType || 'audio/webm' });
+              setAudioBlob(blob);
+              setAudioUrl(URL.createObjectURL(blob));
+              setRecordingState('stopped');
+              setNoteTitle(`Voice memo - ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+              stream.getTracks().forEach(t => t.stop());
+            };
+            mr.start(100);
+
+            // Speech-to-Text via Web Speech API
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRec) {
+              const rec = new SpeechRec();
+              rec.continuous = true;
+              rec.interimResults = true;
+              rec.onresult = (event) => {
+                let fullText = '';
+                for (let i = 0; i < event.results.length; i++) {
+                  fullText += event.results[i][0].transcript + ' ';
+                }
+                setTranscript(fullText.trim());
+              };
+              rec.onerror = () => {};
+              try { rec.start(); speechRecognitionRef.current = rec; } catch (e) {}
+            } else {
+              setSpeechSupported(false);
+            }
+
+            timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+          } catch (e) {
+            console.error(e);
+            alert('Could not access the microphone. Please check your browser/site permissions and try again.');
+            onClose();
+          }
+        }
+
+        start();
+
+        return () => {
+          clearInterval(timerRef.current);
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            try { mediaRecorderRef.current.stop(); } catch (e) {}
+          }
+          if (speechRecognitionRef.current) {
+            try { speechRecognitionRef.current.stop(); } catch (e) {}
+          }
+          if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            try { audioContextRef.current.close(); } catch (e) {}
+          }
+        };
+      }, []);
+
+      // Release the audio preview URL when the modal closes, otherwise each recording leaks memory.
+      useEffect(() => {
+        return () => {
+          if (audioUrl) URL.revokeObjectURL(audioUrl);
+        };
+      }, [audioUrl]);
+
+      const pauseRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.pause();
+          setRecordingState('paused');
+          clearInterval(timerRef.current);
+          if (speechRecognitionRef.current) try { speechRecognitionRef.current.stop(); } catch (e) {}
+        }
+      };
+
+      const resumeRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+          mediaRecorderRef.current.resume();
+          setRecordingState('recording');
+          timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+          if (speechRecognitionRef.current) try { speechRecognitionRef.current.start(); } catch (e) {}
+        }
+      };
+
+      const stopRecording = () => {
+        clearInterval(timerRef.current);
+        if (speechRecognitionRef.current) {
+          try { speechRecognitionRef.current.stop(); } catch (e) {}
+        }
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      };
+
+      const handleSave = () => {
+        onSaveVoiceNote({
+          type: 'voice',
+          title: noteTitle.trim() || 'Voice memo',
+          audioBlob,
+          duration: elapsed,
+          transcript: transcript.trim(),
+          color: 'peach'
+        });
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+          <div className="w-full max-w-md rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-6 shadow-2xl text-center space-y-5">
+            <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                <h3 className="font-bold text-sm">Voice Studio</h3>
+              </div>
+              <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-600">
+                <Icons.Close className="w-4 h-4" />
+              </button>
+            </div>
+
+            {recordingState !== 'stopped' ? (
+              <div className="space-y-4">
+                {/* Monospace running timer with glowing indicator */}
+                <div className="flex items-center justify-center gap-2">
+                  <div className="text-4xl font-mono font-bold text-amber-500 tracking-wider">
+                    {formatTime(elapsed)}
+                  </div>
+                </div>
+
+                {/* Prominent Live Waveform Visualizer */}
+                <LiveWaveformVisualizer
+                  analyser={analyserRef.current}
+                  isRecording={recordingState === 'recording'}
+                  isPaused={recordingState === 'paused'}
+                />
+
+                {/* Live Speech-to-Text Transcript Preview */}
+                {transcript && (
+                  <div className="p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800/60 text-xs text-neutral-600 dark:text-neutral-300 max-h-20 overflow-y-auto text-left leading-relaxed">
+                    <span className="font-semibold text-[10px] text-amber-500 uppercase tracking-wider block mb-1">Live Transcript:</span>
+                    {transcript}
+                  </div>
+                )}
+
+                {/* Central record button with radial glowing ring + flanking pause/stop controls */}
+                <div className="flex items-center justify-center gap-6 pt-2">
+                  {recordingState === 'recording' ? (
+                    <button
+                      onClick={pauseRecording}
+                      className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 flex items-center justify-center shadow transition active:scale-90"
+                      title="Pause"
+                    >
+                      <Icons.Pause className="w-5 h-5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={resumeRecording}
+                      className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 flex items-center justify-center shadow transition active:scale-90"
+                      title="Resume"
+                    >
+                      <Icons.Play className="w-5 h-5 ml-0.5" />
+                    </button>
+                  )}
+
+                  <div
+                    onClick={stopRecording}
+                    className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center cursor-pointer shadow-xl animate-glowPulse transition active:scale-95"
+                    title="Done Recording"
+                  >
+                    <Icons.Stop className="w-7 h-7" />
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-neutral-400">Tap square to finish recording</p>
+              </div>
+            ) : (
+              /* Review & Rename screen before saving */
+              <div className="space-y-4 text-left">
+                <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-medium flex items-center gap-2">
+                  <Icons.Check className="w-4 h-4" />
+                  <span>Recording ready ({formatTime(elapsed)})! Give it a title:</span>
+                </div>
+
+                {audioUrl && <audio src={audioUrl} controls className="w-full h-10 rounded-xl" />}
+
+                <div>
+                  <label className="block text-xs font-semibold text-neutral-500 mb-1">Title</label>
+                  <input
+                    type="text"
+                    value={noteTitle}
+                    onChange={(e) => setNoteTitle(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs font-medium outline-none"
+                    autoFocus
+                  />
+                </div>
+
+                {transcript && (
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-500 mb-1">Transcript (Auto-saved)</label>
+                    <textarea
+                      value={transcript}
+                      onChange={(e) => setTranscript(e.target.value)}
+                      rows={2}
+                      className="w-full p-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs font-medium outline-none resize-none"
+                    />
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button onClick={onClose} className="px-4 py-2 text-xs font-semibold rounded-xl text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition">
+                    Discard
+                  </button>
+                  <button onClick={handleSave} className="px-5 py-2 text-xs font-semibold rounded-xl bg-amber-500 hover:bg-amber-600 text-white shadow-md transition active:scale-95">
+                    Save Voice Note
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function SettingsModal({ isOpen, onClose, notes, onExportNotes, onImportNotes, accentColor, onSelectAccent, showOnThisDay, onToggleOnThisDay, updateBannerInfo, onCheckUpdates }) {
+      const [activeTab, setActiveTab] = useState('general'); // 'general' | 'stats'
+      const fileRef = useRef(null);
+      if (!isOpen) return null;
+
+      // Calculate Statistics
+      const totalNotes = notes.length;
+      const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const createdThisWeek = notes.filter(n => (n.createdAt || 0) > weekAgo).length;
+      const typeCounts = {
+        text: notes.filter(n => n.type === 'text').length,
+        checklist: notes.filter(n => n.type === 'checklist').length,
+        voice: notes.filter(n => n.type === 'voice').length
+      };
+
+      // Most used label
+      const labelFreq = {};
+      notes.forEach(n => {
+        (n.tags || []).forEach(t => labelFreq[t] = (labelFreq[t] || 0) + 1);
+      });
+      const mostUsedLabel = Object.entries(labelFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || 'None';
+
+      // 7-day bar activity
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const past7Days = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        const dayStr = d.toDateString();
+        const count = notes.filter(n => new Date(n.createdAt || 0).toDateString() === dayStr).length;
+        return { label: days[d.getDay()], count };
+      });
+      const maxDayCount = Math.max(1, ...past7Days.map(p => p.count));
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+          <div className="w-full max-w-md rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-6 shadow-2xl space-y-4 text-neutral-900 dark:text-neutral-100">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center gap-2">
+                <Icons.Settings className="w-5 h-5 text-amber-500" />
+                <h3 className="font-bold text-base">Settings & About</h3>
+              </div>
+              <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-700">✕</button>
+            </div>
+
+            {/* Tab switch */}
+            <div className="flex rounded-xl bg-neutral-100 dark:bg-neutral-800 p-1 text-xs font-semibold">
+              <button
+                onClick={() => setActiveTab('general')}
+                className={`flex-1 py-1.5 rounded-lg transition ${activeTab === 'general' ? 'bg-white dark:bg-neutral-700 shadow-sm text-amber-600 dark:text-amber-400' : 'text-neutral-500'}`}
+              >
+                General
+              </button>
+              <button
+                onClick={() => setActiveTab('stats')}
+                className={`flex-1 py-1.5 rounded-lg transition ${activeTab === 'stats' ? 'bg-white dark:bg-neutral-700 shadow-sm text-amber-600 dark:text-amber-400' : 'text-neutral-500'}`}
+              >
+                Statistics
+              </button>
+            </div>
+
+            {activeTab === 'general' ? (
+              <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
+                {/* Accent Theme Colors */}
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-neutral-400 block mb-2">Accent Color</span>
+                  <div className="flex items-center gap-2">
+                    {ACCENT_COLORS.map(acc => (
+                      <button
+                        key={acc.id}
+                        onClick={() => onSelectAccent(acc)}
+                        style={{ backgroundColor: acc.color }}
+                        className={`w-7 h-7 rounded-full transition hover:scale-110 ${accentColor.id === acc.id ? 'ring-2 ring-offset-2 ring-neutral-400 scale-110' : ''}`}
+                        title={acc.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Memories Toggle */}
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-100 dark:border-neutral-800">
+                  <div>
+                    <span className="text-xs font-bold block">"On This Day" Memories</span>
+                    <span className="text-[11px] text-neutral-400">Show cards from 1 week, 1 month, or 1 year ago</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={showOnThisDay}
+                    onChange={(e) => onToggleOnThisDay(e.target.checked)}
+                    className="w-4 h-4 accent-amber-500 rounded cursor-pointer"
+                  />
+                </div>
+
+                {/* Backup & Restore Card */}
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 block">
+                    Backup & Restore (JSON)
+                  </span>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                    Export all notes, checklists, voice memos and drawings into a portable JSON backup file, or restore anytime.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button
+                      onClick={onExportNotes}
+                      className="py-2.5 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs shadow-md transition active:scale-95"
+                    >
+                      Export Notes
+                    </button>
+                    <input type="file" ref={fileRef} accept=".json" onChange={onImportNotes} className="hidden" />
+                    <button
+                      onClick={() => fileRef.current?.click()}
+                      className="py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-semibold text-xs shadow-md transition active:scale-95"
+                    >
+                      Import Notes
+                    </button>
+                  </div>
+                </div>
+
+                {/* About & GitHub Updates */}
+                <div className="pt-2 text-xs space-y-2 border-t border-neutral-100 dark:border-neutral-800">
+                  <div className="flex justify-between items-center text-neutral-400">
+                    <span>App Version: v{APP_VERSION}</span>
+                    <button
+                      onClick={onCheckUpdates}
+                      className="text-amber-500 hover:underline font-semibold"
+                    >
+                      Check for updates
+                    </button>
+                  </div>
+                  <div className="text-[11px] text-neutral-400">
+                    Repository:{' '}
+                    <a href={`https://github.com/${GITHUB_REPO}`} target="_blank" rel="noreferrer" className="text-amber-500 hover:underline">
+                      github.com/{GITHUB_REPO}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Statistics Mini Dashboard */
+              <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-center">
+                    <span className="text-2xl font-bold text-amber-500 block">{totalNotes}</span>
+                    <span className="text-[11px] text-neutral-400">Total Notes</span>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-center">
+                    <span className="text-2xl font-bold text-amber-500 block">{createdThisWeek}</span>
+                    <span className="text-[11px] text-neutral-400">Created This Week</span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-xs space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Most Used Label:</span>
+                    <span className="font-semibold">#{mostUsedLabel}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-neutral-400">Types:</span>
+                    <span>{typeCounts.text} text, {typeCounts.checklist} list, {typeCounts.voice} voice</span>
+                  </div>
+                </div>
+
+                {/* 7-Day Activity Bars */}
+                <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800">
+                  <span className="text-xs font-bold uppercase tracking-wider text-neutral-400 block mb-3">7-Day Activity</span>
+                  <div className="flex items-end justify-between h-24 pt-2 px-1">
+                    {past7Days.map((d, i) => {
+                      const hPercent = Math.round((d.count / maxDayCount) * 100);
+                      return (
+                        <div key={i} className="flex flex-col items-center gap-1.5 flex-1">
+                          <span className="text-[9px] font-mono text-neutral-400">{d.count}</span>
+                          <div className="w-5 bg-neutral-200 dark:bg-neutral-700 rounded-t-lg relative overflow-hidden flex items-end h-14">
+                            <div
+                              style={{ height: `${Math.max(10, hPercent)}%` }}
+                              className="w-full bg-amber-500 rounded-t-lg transition-all"
+                            />
+                          </div>
+                          <span className="text-[10px] font-semibold text-neutral-500">{d.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function NoteActionMenu({
+      note,
+      isTrashView,
+      onArchive,
+      onTrash,
+      onRestore,
+      onDeletePermanent,
+      onDuplicate,
+      onShare,
+      onToggleChecklist,
+      onAddDrawing,
+      labels,
+      onToggleNoteLabel,
+      onSetMood
+    }) {
+      const [open, setOpen] = useState(false);
+      const [showLabelPicker, setShowLabelPicker] = useState(false);
+      const [showMoodPicker, setShowMoodPicker] = useState(false);
+      const [showVersionHistory, setShowVersionHistory] = useState(false);
+      const ref = useRef(null);
+
+      useEffect(() => {
+        function handleClickOutside(e) {
+          if (ref.current && !ref.current.contains(e.target)) {
+            setOpen(false);
+            setShowLabelPicker(false);
+            setShowMoodPicker(false);
+            setShowVersionHistory(false);
+          }
+        }
+        if (open) document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, [open]);
+
+      return (
+        <div className="relative" ref={ref} onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition"
+            title="More Options"
+          >
+            <Icons.MoreVertical className="w-4 h-4" />
+          </button>
+
+          {open && (
+            <div className="absolute right-0 bottom-8 z-50 w-52 py-2 rounded-2xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 shadow-2xl animate-popIn text-xs">
+              {!isTrashView ? (
+                <>
+                  <button
+                    onClick={() => { onTrash(); setOpen(false); }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5 text-red-600 dark:text-red-400"
+                  >
+                    <Icons.Trash className="w-3.5 h-3.5" />
+                    <span>Delete note</span>
+                  </button>
+
+                  <button
+                    onClick={() => { setShowLabelPicker(!showLabelPicker); setShowMoodPicker(false); setShowVersionHistory(false); }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Icons.Tag className="w-3.5 h-3.5 text-neutral-400" />
+                      <span>Add label</span>
+                    </div>
+                    <span>▸</span>
+                  </button>
+
+                  {showLabelPicker && (
+                    <div className="px-3 py-2 bg-neutral-50 dark:bg-neutral-900/60 space-y-1.5 border-y border-neutral-100 dark:border-neutral-700">
+                      {labels.length === 0 && <span className="text-[10px] text-neutral-400 italic">No labels created</span>}
+                      {labels.map((lbl) => {
+                        const has = (note.tags || []).includes(lbl);
+                        return (
+                          <label key={lbl} className="flex items-center gap-2 cursor-pointer text-xs">
+                            <input
+                              type="checkbox"
+                              checked={has}
+                              onChange={() => onToggleNoteLabel(lbl)}
+                              className="accent-amber-500 rounded"
+                            />
+                            <span className="truncate">{lbl}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => { setShowMoodPicker(!showMoodPicker); setShowLabelPicker(false); setShowVersionHistory(false); }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span>🏷️</span>
+                      <span>Mood / Reaction</span>
+                    </div>
+                    <span>▸</span>
+                  </button>
+
+                  {showMoodPicker && (
+                    <div className="flex items-center justify-around p-2 bg-neutral-50 dark:bg-neutral-900/60 border-y border-neutral-100 dark:border-neutral-700">
+                      {EMOJI_MOODS.map(m => (
+                        <button
+                          key={m}
+                          onClick={() => { onSetMood(note.mood === m ? null : m); setOpen(false); }}
+                          className={`text-base p-1 hover:scale-125 transition ${note.mood === m ? 'scale-125 ring-1 ring-amber-500 rounded-full' : ''}`}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {onAddDrawing && (
+                    <button
+                      onClick={() => { onAddDrawing(); setOpen(false); }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5"
+                    >
+                      <Icons.Brush className="w-3.5 h-3.5 text-neutral-400" />
+                      <span>Add drawing</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => { onDuplicate(); setOpen(false); }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5"
+                  >
+                    <Icons.Checklist className="w-3.5 h-3.5 text-neutral-400" />
+                    <span>Make a copy</span>
+                  </button>
+
+                  {note.type !== 'voice' && (
+                    <button
+                      onClick={() => { onToggleChecklist(); setOpen(false); }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5"
+                    >
+                      <Icons.Checklist className="w-3.5 h-3.5 text-neutral-400" />
+                      <span>{note.type === 'checklist' ? 'Convert to text' : 'Show checkboxes'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => { onShare(); setOpen(false); }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5"
+                  >
+                    <Icons.Share className="w-3.5 h-3.5 text-neutral-400" />
+                    <span>Share / Copy</span>
+                  </button>
+
+                  <button
+                    onClick={() => { setShowVersionHistory(!showVersionHistory); setShowLabelPicker(false); setShowMoodPicker(false); }}
+                    className="w-full text-left px-3.5 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Icons.Command className="w-3.5 h-3.5 text-neutral-400" />
+                      <span>Version history</span>
+                    </div>
+                    <span>▸</span>
+                  </button>
+
+                  {showVersionHistory && (
+                    <div className="p-2.5 bg-neutral-50 dark:bg-neutral-900/70 border-y border-neutral-100 dark:border-neutral-700 text-[10px] space-y-1 text-neutral-500">
+                      <div><strong className="text-neutral-700 dark:text-neutral-300">Created:</strong> {new Date(note.createdAt || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                      <div><strong className="text-neutral-700 dark:text-neutral-300">Updated:</strong> {new Date(note.updatedAt || note.createdAt || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button onClick={() => { onRestore(); setOpen(false); }} className="w-full text-left px-3.5 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60">
+                    Restore note
+                  </button>
+                  <button onClick={() => { onDeletePermanent(); setOpen(false); }} className="w-full text-left px-3.5 py-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40">
+                    Delete forever
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function NoteInput({ onSave, onOpenVoiceRecorder, onOpenDrawingModal, isDarkMode, labels, onOpenZen }) {
+      const [isOpen, setIsOpen] = useState(false);
+      const [mode, setMode] = useState('text');
+      const [title, setTitle] = useState('');
+      const [content, setContent] = useState('');
+      const [checklistItems, setChecklistItems] = useState([]);
+      const [images, setImages] = useState([]);
+      const [isPinned, setIsPinned] = useState(false);
+      const [color, setColor] = useState('default');
+      const [reminder, setReminder] = useState(null);
+      const [tags, setTags] = useState([]);
+      const [mood, setMood] = useState(null);
+      const [showTemplateMenu, setShowTemplateMenu] = useState(false);
+
+      const containerRef = useRef(null);
+      const fileInputRef = useRef(null);
+
+      useEffect(() => {
+        function handleClickOutside(event) {
+          if (containerRef.current && !containerRef.current.contains(event.target)) {
+            handleCloseAndSave();
+          }
+        }
+        if (isOpen) document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, [isOpen, title, content, checklistItems, images, color, isPinned, reminder, tags, mood, mode]);
+
+      // Clipboard Paste image listener
+      useEffect(() => {
+        if (!isOpen) return;
+        const handlePaste = (e) => {
+          if (e.clipboardData && e.clipboardData.files.length > 0) {
+            const file = e.clipboardData.files[0];
+            if (file.type.startsWith('image/')) {
+              e.preventDefault();
+              const reader = new FileReader();
+              reader.onload = (ev) => setImages(prev => [...prev, ev.target.result]);
+              reader.readAsDataURL(file);
+            }
+          }
+        };
+        window.addEventListener('paste', handlePaste);
+        return () => window.removeEventListener('paste', handlePaste);
+      }, [isOpen]);
+
+      const handleCloseAndSave = () => {
+        const hasText = content.trim().length > 0;
+        const hasChecklist = checklistItems.some(i => i.text.trim().length > 0);
+        const hasImages = images.length > 0;
+
+        if (title.trim() || hasText || hasChecklist || hasImages) {
+          onSave({
+            type: mode,
+            title: title.trim(),
+            content: mode === 'text' ? content.trim() : '',
+            checklist: mode === 'checklist' ? checklistItems.filter(i => i.text.trim()) : [],
+            images,
+            color,
+            isPinned,
+            reminder,
+            tags,
+            mood
+          });
+        }
+        setTitle('');
+        setContent('');
+        setChecklistItems([]);
+        setImages([]);
+        setIsPinned(false);
+        setColor('default');
+        setReminder(null);
+        setTags([]);
+        setMood(null);
+        setMode('text');
+        setShowTemplateMenu(false);
+        setIsOpen(false);
+      };
+
+      const applyTemplate = (tpl) => {
+        setTitle(tpl.title || '');
+        if (tpl.type === 'checklist') {
+          setMode('checklist');
+          setChecklistItems(tpl.checklist || []);
+          setContent('');
+        } else {
+          setMode('text');
+          setContent(tpl.content || '');
+          setChecklistItems([]);
+        }
+        setShowTemplateMenu(false);
+        setIsOpen(true);
+      };
+
+      const activeColorClass = getColorClass(color, isDarkMode);
+
+      return (
+        <div
+          ref={containerRef}
+          className={`rounded-3xl transition-all duration-200 border ${
+            isOpen
+              ? `${activeColorClass} shadow-xl ring-2 ring-neutral-200 dark:ring-neutral-800`
+              : 'bg-white dark:bg-[#18191d] border-neutral-200/80 dark:border-neutral-800/80 hover:shadow-md'
+          }`}
+        >
+          {!isOpen ? (
+            <div
+              onClick={() => setIsOpen(true)}
+              className="flex items-center justify-between p-3.5 px-5 cursor-text"
+            >
+              <span className="text-neutral-400 dark:text-neutral-500 text-sm font-medium">
+                Take a note...
+              </span>
+              <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                {/* Templates button */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowTemplateMenu(!showTemplateMenu)}
+                    className="p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-amber-500 transition"
+                    title="Templates"
+                  >
+                    <Icons.Template className="w-4 h-4" />
+                  </button>
+                  {showTemplateMenu && (
+                    <div className="absolute right-0 top-10 z-50 w-48 py-1.5 rounded-2xl bg-white dark:bg-neutral-800 shadow-2xl border border-neutral-200 dark:border-neutral-700 text-xs animate-popIn">
+                      <span className="px-3 py-1 font-semibold text-[10px] text-neutral-400 uppercase tracking-wider block">Templates</span>
+                      {TEMPLATES.map(tpl => (
+                        <button
+                          key={tpl.id}
+                          onClick={() => applyTemplate(tpl)}
+                          className="w-full text-left px-3 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2"
+                        >
+                          <span>{tpl.type === 'checklist' ? '📋' : '📝'}</span>
+                          <span className="truncate">{tpl.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => { setIsOpen(true); setMode('checklist'); setChecklistItems([{ id: 'it_0', text: '', checked: false }]); }}
+                  className="p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-amber-500 transition"
+                  title="Checklist"
+                >
+                  <Icons.Checklist className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => { setIsOpen(true); onOpenDrawingModal((img) => setImages(prev => [...prev, img])); }}
+                  className="p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-amber-500 transition"
+                  title="Draw"
+                >
+                  <Icons.Brush className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => { setIsOpen(true); fileInputRef.current?.click(); }}
+                  className="p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-amber-500 transition"
+                  title="Attach Image"
+                >
+                  <Icons.Image className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={onOpenVoiceRecorder}
+                  className="p-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 hover:text-amber-500 transition"
+                  title="Voice Note"
+                >
+                  <Icons.Mic className="w-4 h-4" />
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => setImages(prev => [...prev, ev.target.result]);
+                      reader.readAsDataURL(e.target.files[0]);
+                    }
+                  }}
+                  className="hidden"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 sm:p-5 space-y-3">
+              {/* Attached Images */}
+              {images.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {images.map((img, idx) => (
+                    <div key={idx} className="relative rounded-xl overflow-hidden shadow-sm">
+                      <img src={img} alt="Attached" className="h-20 w-24 object-cover rounded-xl" />
+                      <button
+                        type="button"
+                        onClick={() => setImages(images.filter((_, i) => i !== idx))}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center text-xs hover:bg-red-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Top Row: Title + Pin button on the far right (NO ACTION BUTTONS HERE) */}
+              <div className="flex items-center justify-between gap-3">
+                <input
+                  type="text"
+                  placeholder="Title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="w-full bg-transparent font-semibold text-base outline-none placeholder-neutral-400"
+                  autoFocus
+                />
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onOpenZen(title, content, (t, c) => { setTitle(t); setContent(c); })}
+                    className="p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 text-neutral-400 hover:text-amber-500 transition"
+                    title="Zen Focus Mode"
+                  >
+                    <Icons.Expand className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsPinned(!isPinned)}
+                    className={`p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition flex-shrink-0 ${isPinned ? 'text-amber-500' : 'text-neutral-400'}`}
+                    title={isPinned ? 'Unpin' : 'Pin'}
+                  >
+                    <Icons.Pin className="w-4 h-4" filled={isPinned} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Note Content or Checklist */}
+              {mode === 'text' ? (
+                <textarea
+                  placeholder="Take a note..."
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  rows={3}
+                  className="w-full bg-transparent text-sm resize-none outline-none placeholder-neutral-400 leading-relaxed"
+                />
+              ) : (
+                <div className="space-y-2 py-1">
+                  {checklistItems.map((item) => (
+                    <div key={item.id} className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={item.checked}
+                        onChange={(e) => {
+                          setChecklistItems(checklistItems.map(i => i.id === item.id ? { ...i, checked: e.target.checked } : i));
+                        }}
+                        className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        placeholder="List item..."
+                        value={item.text}
+                        onChange={(e) => {
+                          setChecklistItems(checklistItems.map(i => i.id === item.id ? { ...i, text: e.target.value } : i));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            setChecklistItems([...checklistItems, { id: 'it_' + Date.now(), text: '', checked: false }]);
+                          }
+                        }}
+                        className={`w-full bg-transparent text-xs outline-none ${item.checked ? 'line-through opacity-50' : ''}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setChecklistItems(checklistItems.filter(i => i.id !== item.id))}
+                        className="text-neutral-400 hover:text-red-500 p-1"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setChecklistItems([...checklistItems, { id: 'it_' + Date.now(), text: '', checked: false }])}
+                    className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium py-1"
+                  >
+                    + Add item
+                  </button>
+                </div>
+              )}
+
+              {/* Badges */}
+              {(tags.length > 0 || reminder || mood) && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  {mood && <span className="text-sm">{mood}</span>}
+                  {reminder && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] bg-black/5 dark:bg-white/10 font-medium">
+                      <Icons.Bell className="w-3 h-3 text-amber-500" />
+                      {formatReminderDate(reminder)}
+                      <button onClick={() => setReminder(null)} className="ml-1 hover:text-red-500">×</button>
+                    </span>
+                  )}
+                  {tags.map((t) => (
+                    <span key={t} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] bg-black/5 dark:bg-white/10 font-medium">
+                      #{t}
+                      <button onClick={() => setTags(tags.filter(item => item !== t))} className="ml-1 hover:text-red-500">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Bottom Toolbar: All action icons housed safely here */}
+              <div className="flex items-center justify-between pt-2.5 border-t border-black/5 dark:border-white/10">
+                <div className="flex items-center gap-1">
+                  <ColorPickerPopover currentColor={color} onSelectColor={setColor} />
+                  <ReminderPopover reminder={reminder} onSetReminder={setReminder} />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500"
+                    title="Attach Image"
+                  >
+                    <Icons.Image className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenDrawingModal((img) => setImages(prev => [...prev, img]))}
+                    className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500"
+                    title="Add Drawing"
+                  >
+                    <Icons.Brush className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode(mode === 'text' ? 'checklist' : 'text')}
+                    className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500"
+                    title="Toggle Checklist"
+                  >
+                    <Icons.Checklist className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleCloseAndSave}
+                  className="px-4 py-1.5 text-xs font-semibold rounded-xl bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 hover:opacity-90 active:scale-95 transition shadow-sm"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function ColorPickerPopover({ currentColor, onSelectColor }) {
+      const [open, setOpen] = useState(false);
+      const ref = useRef(null);
+
+      useEffect(() => {
+        function handleClickOutside(e) {
+          if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+        }
+        if (open) document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, [open]);
+
+      return (
+        <div className="relative" ref={ref} onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition"
+            title="Note Color"
+          >
+            <Icons.Palette className="w-4 h-4" />
+          </button>
+
+          {open && (
+            <div className="absolute left-0 bottom-8 z-50 p-2 rounded-2xl bg-white dark:bg-neutral-800 shadow-2xl border border-neutral-200 dark:border-neutral-700 grid grid-cols-5 gap-1.5 animate-popIn">
+              {COLOR_OPTIONS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => { onSelectColor(c.id); setOpen(false); }}
+                  className={`w-5 h-5 rounded-full border border-neutral-300 dark:border-neutral-600 transition hover:scale-125 ${c.swatch} ${
+                    currentColor === c.id ? 'ring-2 ring-amber-500 scale-110' : ''
+                  }`}
+                  title={c.name}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function ReminderPopover({ reminder, onSetReminder }) {
+      const [open, setOpen] = useState(false);
+      const [customDate, setCustomDate] = useState('');
+      const ref = useRef(null);
+
+      useEffect(() => {
+        function handleClickOutside(e) {
+          if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+        }
+        if (open) document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+      }, [open]);
+
+      const setPreset = (type) => {
+        if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
+        const d = new Date();
+        if (type === 'later') d.setHours(20, 0, 0, 0);
+        else if (type === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); }
+        else if (type === 'nextweek') { d.setDate(d.getDate() + 7); d.setHours(9, 0, 0, 0); }
+        onSetReminder(d.toISOString());
+        setOpen(false);
+      };
+
+      return (
+        <div className="relative" ref={ref} onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition"
+            title="Set Reminder"
+          >
+            <Icons.Bell className="w-4 h-4" />
+          </button>
+
+          {open && (
+            <div className="absolute left-0 bottom-8 z-50 w-48 p-2 rounded-2xl bg-white dark:bg-neutral-800 shadow-2xl border border-neutral-200 dark:border-neutral-700 animate-popIn text-xs space-y-1">
+              <span className="px-2 py-1 font-semibold text-[10px] text-neutral-400 block uppercase tracking-wider">Reminder</span>
+              <button onClick={() => setPreset('later')} className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 flex justify-between">
+                <span>Later today</span><span className="text-neutral-400">8:00 PM</span>
+              </button>
+              <button onClick={() => setPreset('tomorrow')} className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 flex justify-between">
+                <span>Tomorrow</span><span className="text-neutral-400">9:00 AM</span>
+              </button>
+              <button onClick={() => setPreset('nextweek')} className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-700 flex justify-between">
+                <span>Next week</span><span className="text-neutral-400">Mon 9:00 AM</span>
+              </button>
+
+              <div className="pt-2 border-t border-neutral-100 dark:border-neutral-700 px-1">
+                <input
+                  type="datetime-local"
+                  value={customDate}
+                  onChange={(e) => setCustomDate(e.target.value)}
+                  className="w-full p-1 text-[11px] rounded-lg bg-neutral-100 dark:bg-neutral-900 outline-none"
+                />
+                <div className="flex justify-between items-center mt-1.5">
+                  {reminder && (
+                    <button onClick={() => { onSetReminder(null); setOpen(false); }} className="text-red-500 hover:underline text-[10px]">
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (customDate) {
+                        if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
+                        onSetReminder(new Date(customDate).toISOString());
+                        setOpen(false);
+                      }
+                    }}
+                    className="ml-auto px-2.5 py-0.5 rounded-lg bg-amber-500 text-white font-semibold text-[10px]"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function NoteCard({
+      note,
+      isDark,
+      viewMode,
+      isSelected,
+      isSelectMode,
+      onToggleSelect,
+      onPin,
+      onArchive,
+      onTrash,
+      onRestore,
+      onDeletePermanent,
+      onChangeColor,
+      onDuplicate,
+      onShare,
+      onToggleChecklist,
+      onSetReminder,
+      onOpenLightbox,
+      onOpenDrawingModal,
+      labels,
+      onToggleNoteLabel,
+      onSetMood,
+      onUpdateNote,
+      isTrashView
+    }) {
+      const cardColorClass = getColorClass(note.color, isDark);
+      const isVoice = note.type === 'voice';
+
+      // Audio playback states
+      const [isPlaying, setIsPlaying] = useState(false);
+      const [currentTime, setCurrentTime] = useState(0);
+      const [audioDuration, setAudioDuration] = useState(note.duration || 0);
+      const [playbackRate, setPlaybackRate] = useState(1);
+      const [showTranscript, setShowTranscript] = useState(false);
+      const audioRef = useRef(null);
+      const [audioUrl, setAudioUrl] = useState(null);
+
+      // Touch Swipe Gesture states for Mobile
+      const [touchStartX, setTouchStartX] = useState(null);
+      const [swipeOffset, setSwipeOffset] = useState(0);
+
+      useEffect(() => {
+        if (note.audioBlob) {
+          const url = URL.createObjectURL(note.audioBlob);
+          setAudioUrl(url);
+          return () => URL.revokeObjectURL(url);
+        }
+        setAudioUrl(null);
+      }, [note.audioBlob]);
+
+      const togglePlayPause = (e) => {
+        e.stopPropagation();
+        if (!audioRef.current) return;
+        if (isPlaying) audioRef.current.pause();
+        else audioRef.current.play().catch(() => {});
+      };
+
+      const cycleSpeed = (e) => {
+        e.stopPropagation();
+        const speeds = [1, 1.5, 2, 0.5];
+        const next = speeds[(speeds.indexOf(playbackRate) + 1) % speeds.length];
+        setPlaybackRate(next);
+        if (audioRef.current) audioRef.current.playbackRate = next;
+      };
+
+      // Touch handlers for mobile swipe-to-archive / swipe-to-trash
+      const handleTouchStart = (e) => {
+        setTouchStartX(e.touches[0].clientX);
+      };
+
+      const handleTouchMove = (e) => {
+        if (touchStartX === null) return;
+        const currentX = e.touches[0].clientX;
+        const diff = currentX - touchStartX;
+        if (Math.abs(diff) < 120) setSwipeOffset(diff);
+      };
+
+      const handleTouchEnd = () => {
+        if (swipeOffset > 75 && !isTrashView) {
+          onArchive();
+        } else if (swipeOffset < -75 && !isTrashView) {
+          onTrash();
+        }
+        setTouchStartX(null);
+        setSwipeOffset(0);
+      };
+
+      const items = note.checklist || [];
+      const unchecked = items.filter(i => !i.checked);
+      const checked = items.filter(i => i.checked);
+
+      return (
+        <div
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          style={{ transform: `translateX(${swipeOffset}px)` }}
+          className={`break-inside-avoid group relative rounded-3xl border p-4 sm:p-5 transition-all duration-200 hover:shadow-lg ${cardColorClass} ${
+            viewMode === 'list' ? 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 w-full' : ''
+          } ${isSelected ? 'ring-2 ring-amber-500 scale-[0.99]' : ''}`}
+        >
+          {/* Mobile Swipe Indicators */}
+          {swipeOffset > 25 && (
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500 font-bold text-xs flex items-center gap-1">
+              <Icons.Archive className="w-4 h-4" /> Archive
+            </div>
+          )}
+          {swipeOffset < -25 && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 font-bold text-xs flex items-center gap-1">
+              Delete <Icons.Trash className="w-4 h-4" />
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0">
+            {/* TOP HEADER: Type badge / Mood on the left, PIN on the far right. NO ACTION OVERLAP */}
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {isSelectMode && (
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
+                    className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                  />
+                )}
+                {note.mood && <span className="text-sm">{note.mood}</span>}
+                {isVoice ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                    <Icons.Mic className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                    <span>Voice Memo</span>
+                    <span className="opacity-60 font-mono text-[10px]">({formatTime(audioDuration)})</span>
+                  </span>
+                ) : note.type === 'checklist' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-black/5 dark:bg-white/10 opacity-70">
+                    <Icons.Checklist className="w-3 h-3" />
+                    <span>Checklist</span>
+                  </span>
+                ) : null}
+              </div>
+
+              {!isTrashView && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onPin(); }}
+                  className={`p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition flex-shrink-0 ${
+                    note.isPinned ? 'text-amber-500 opacity-100' : 'text-neutral-400 opacity-0 group-hover:opacity-100'
+                  }`}
+                  title={note.isPinned ? 'Unpin' : 'Pin note'}
+                >
+                  <Icons.Pin className="w-4 h-4" filled={note.isPinned} />
+                </button>
+              )}
+            </div>
+
+            {/* Attached Images */}
+            {note.images && note.images.length > 0 && (
+              <div className="mb-3 rounded-2xl overflow-hidden flex flex-wrap gap-1.5">
+                {note.images.map((img, idx) => (
+                  <img
+                    key={idx}
+                    src={img}
+                    alt="Attachment"
+                    onClick={(e) => { e.stopPropagation(); onOpenLightbox(img); }}
+                    className="h-28 w-full object-cover rounded-xl cursor-pointer hover:opacity-95"
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Note Title: FULL WIDTH with no obstruction */}
+            {note.title && (
+              <h3 className="font-bold text-base mb-1.5 tracking-tight leading-snug break-words">
+                {note.title}
+              </h3>
+            )}
+
+            {/* Text Content */}
+            {note.type === 'text' && note.content && (
+              <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed opacity-90 break-words line-clamp-6 mb-2">
+                {note.content}
+              </p>
+            )}
+
+            {/* Checklist Items */}
+            {note.type === 'checklist' && (
+              <div className="space-y-1.5 my-2 text-xs sm:text-sm">
+                {unchecked.map((item) => (
+                  <div key={item.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={false}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        const updated = items.map(i => i.id === item.id ? { ...i, checked: true } : i);
+                        onUpdateNote({ ...note, checklist: updated });
+                      }}
+                      className="w-3.5 h-3.5 accent-amber-500 rounded cursor-pointer"
+                    />
+                    <span className="truncate">{item.text}</span>
+                  </div>
+                ))}
+                {checked.length > 0 && (
+                  <div className="pt-1 text-[11px] opacity-50">
+                    +{checked.length} completed item{checked.length > 1 ? 's' : ''}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Audio Player for Voice Note */}
+            {isVoice && audioUrl && (
+              <div onClick={(e) => e.stopPropagation()} className="my-2 p-2.5 rounded-2xl bg-black/5 dark:bg-white/5 flex flex-col gap-2">
+                <audio
+                  ref={audioRef}
+                  src={audioUrl}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onTimeUpdate={() => audioRef.current && setCurrentTime(audioRef.current.currentTime)}
+                  onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
+                />
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={togglePlayPause}
+                    className="w-8 h-8 rounded-full bg-amber-500 hover:bg-amber-600 text-white flex items-center justify-center shadow flex-shrink-0"
+                  >
+                    {isPlaying ? <Icons.Pause className="w-3.5 h-3.5" /> : <Icons.Play className="w-3.5 h-3.5 ml-0.5" />}
+                  </button>
+                  <div className="flex-1 flex flex-col justify-center">
+                    <input
+                      type="range"
+                      min="0"
+                      max={audioDuration || 1}
+                      step="0.1"
+                      value={currentTime}
+                      onChange={(e) => {
+                        const newTime = parseFloat(e.target.value);
+                        if (audioRef.current) {
+                          audioRef.current.currentTime = newTime;
+                          setCurrentTime(newTime);
+                        }
+                      }}
+                      className="w-full accent-amber-500 h-1 bg-neutral-200 dark:bg-neutral-700 rounded-lg cursor-pointer"
+                    />
+                    <div className="flex justify-between text-[9px] opacity-60 mt-1 font-mono">
+                      <span>{formatTime(currentTime)}</span>
+                      <span>{formatTime(audioDuration)}</span>
+                    </div>
+                  </div>
+                  <button onClick={cycleSpeed} className="px-1.5 py-0.5 rounded-lg bg-black/5 dark:bg-white/10 text-[10px] font-bold">
+                    {playbackRate}x
+                  </button>
+                </div>
+
+                {/* Expandable Speech-to-Text Transcript */}
+                {note.transcript && (
+                  <div className="pt-1 text-[11px]">
+                    <button
+                      onClick={() => setShowTranscript(!showTranscript)}
+                      className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
+                    >
+                      <span>{showTranscript ? 'Hide transcript' : 'Show transcript'}</span>
+                    </button>
+                    {showTranscript && (
+                      <p className="mt-1.5 p-2 rounded-xl bg-black/5 dark:bg-white/5 opacity-80 leading-relaxed italic">
+                        "{note.transcript}"
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Badges: Tags & Reminders */}
+            <div className="flex flex-wrap gap-1 mt-2.5">
+              {note.reminder && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-400 font-medium">
+                  <Icons.Bell className="w-2.5 h-2.5" />
+                  {formatReminderDate(note.reminder)}
+                </span>
+              )}
+              {note.tags && note.tags.map((t) => (
+                <span key={t} className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-md bg-black/5 dark:bg-white/10 opacity-75">
+                  #{t}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* BOTTOM TOOLBAR: Actions isolated here cleanly without any title obstruction */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="mt-3 pt-2.5 border-t border-black/5 dark:border-white/10 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            {!isTrashView ? (
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-0.5">
+                  <ReminderPopover reminder={note.reminder} onSetReminder={(r) => onSetReminder(r)} />
+                  <ColorPickerPopover currentColor={note.color} onSelectColor={(c) => onChangeColor(c)} />
+                  <button onClick={onArchive} className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500" title="Archive">
+                    <Icons.Archive className="w-4 h-4" />
+                  </button>
+                </div>
+                <NoteActionMenu
+                  note={note}
+                  isTrashView={isTrashView}
+                  onArchive={onArchive}
+                  onTrash={onTrash}
+                  onRestore={onRestore}
+                  onDeletePermanent={onDeletePermanent}
+                  onDuplicate={onDuplicate}
+                  onShare={onShare}
+                  onToggleChecklist={onToggleChecklist}
+                  onAddDrawing={() => onOpenDrawingModal((img) => onUpdateNote({ ...note, images: [...(note.images || []), img] }))}
+                  labels={labels}
+                  onToggleNoteLabel={onToggleNoteLabel}
+                  onSetMood={(m) => onSetMood(m)}
+                />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between w-full">
+                <button onClick={onRestore} className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-black/5 hover:bg-black/10">
+                  Restore
+                </button>
+                <button onClick={onDeletePermanent} className="text-xs font-semibold px-2.5 py-1 text-red-600 hover:bg-red-50">
+                  Delete forever
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [notes, setNotes] = useState([]);
+      const [currentView, setCurrentView] = useState('notes'); // 'notes' | 'reminders' | 'archive' | 'trash' | 'label'
+      const [selectedLabel, setSelectedLabel] = useState(null);
+      const [labels, setLabels] = useState(() => {
+        try {
+          const raw = localStorage.getItem(LABELS_KEY);
+          return raw ? JSON.parse(raw) : ['Work', 'Personal', 'Ideas'];
+        } catch (e) {
+          return ['Work', 'Personal'];
+        }
+      });
+      const [searchQuery, setSearchQuery] = useState('');
+      const [isDarkMode, setIsDarkMode] = useState(false);
+      const [sidebarOpen, setSidebarOpen] = useState(true);
+      const [accentColor, setAccentColor] = useState(ACCENT_COLORS[0]);
+
+      // View & Sort states
+      const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+      const [sortBy, setSortBy] = useState('updated'); // 'updated' | 'created' | 'title' | 'color'
+
+      // Multi-Select state
+      const [isSelectMode, setIsSelectMode] = useState(false);
+      const [selectedNoteIds, setSelectedNoteIds] = useState([]);
+
+      // Modals
+      const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] = useState(false);
+      const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false);
+      const [drawingCallback, setDrawingCallback] = useState(null);
+      const [isEditLabelsOpen, setIsEditLabelsOpen] = useState(false);
+      const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+      const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+      const [lightboxImage, setLightboxImage] = useState(null);
+
+      // Zen Focus Modal state
+      const [zenModalData, setZenModalData] = useState(null);
+
+      // Undo Snackbar state
+      const [undoState, setUndoState] = useState(null); // { message: string, undoAction: function }
+      const undoTimerRef = useRef(null);
+
+      // "On This Day" banner state
+      const [showOnThisDay, setShowOnThisDay] = useState(() => {
+        return localStorage.getItem(ON_THIS_DAY_KEY) !== 'false';
+      });
+      const [dismissedMemory, setDismissedMemory] = useState(false);
+
+      // Update Checker state
+      const [updateBannerInfo, setUpdateBannerInfo] = useState(null);
+
+      useEffect(() => {
+        const savedTheme = localStorage.getItem('notes_theme');
+        if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          setIsDarkMode(true);
+        }
+        dbGetAllNotes().then(stored => setNotes(stored));
+
+        // Quick capture widget URL params: ?action=new or ?action=record
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('action') === 'record') {
+          setIsVoiceRecorderOpen(true);
+        }
+
+        // Silent GitHub Update Checker
+        checkForUpdates(false);
+      }, []);
+
+      // Reminders only mean something if we actually alert the person when they come due.
+      // While the app is open, check every 30s for any reminder whose time has passed and
+      // hasn't been shown yet, then fire a real browser notification for it.
+      useEffect(() => {
+        const firedKey = 'notes_fired_reminders';
+        const getFired = () => {
+          try { return new Set(JSON.parse(localStorage.getItem(firedKey) || '[]')); }
+          catch (e) { return new Set(); }
+        };
+        const markFired = (key) => {
+          const fired = getFired();
+          fired.add(key);
+          localStorage.setItem(firedKey, JSON.stringify([...fired].slice(-200)));
+        };
+
+        const checkReminders = () => {
+          const fired = getFired();
+          const now = Date.now();
+          notes.forEach((n) => {
+            if (!n.reminder || n.isTrash || n.isArchived) return;
+            const dueAt = new Date(n.reminder).getTime();
+            if (isNaN(dueAt) || dueAt > now) return;
+            const key = n.id + ':' + n.reminder;
+            if (fired.has(key)) return;
+            markFired(key);
+            if (window.Notification && Notification.permission === 'granted') {
+              try {
+                new Notification(n.title || 'Kheyal reminder', {
+                  body: (n.content || n.transcript || 'Tap to open Kheyal').slice(0, 120),
+                  icon: undefined,
+                  tag: n.id
+                });
+              } catch (e) {}
+            }
+          });
+        };
+
+        checkReminders();
+        const intervalId = setInterval(checkReminders, 30000);
+        return () => clearInterval(intervalId);
+      }, [notes]);
+
+      useEffect(() => {
+        localStorage.setItem('notes_theme', isDarkMode ? 'dark' : 'light');
+        if (isDarkMode) document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      }, [isDarkMode]);
+
+      const applyAccent = (acc) => {
+        setAccentColor(acc);
+        document.documentElement.style.setProperty('--accent-color', acc.color);
+        document.documentElement.style.setProperty('--accent-hover', acc.hover);
+        document.documentElement.style.setProperty('--accent-light', acc.light);
+        document.documentElement.style.setProperty('--accent-ring', acc.ring);
+      };
+
+      const checkForUpdates = async (alertIfUpToDate = false) => {
+        try {
+          const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+          if (res.ok) {
+            const data = await res.json();
+            const latestTag = (data.tag_name || '').replace(/^v/, '');
+            const dismissed = localStorage.getItem('notes_dismissed_version');
+            const isNewer = latestTag && compareVersions(latestTag, APP_VERSION) > 0;
+            if (isNewer && dismissed !== latestTag) {
+              setUpdateBannerInfo({ version: latestTag, url: data.html_url });
+            } else if (alertIfUpToDate) {
+              alert('App is already on the latest version!');
+            }
+          } else if (alertIfUpToDate) {
+            alert('Could not check for updates right now. Please try again later.');
+          }
+        } catch (e) {
+          if (alertIfUpToDate) {
+            alert('Could not check for updates. Check your internet connection.');
+          }
+          // Otherwise fail silently on the automatic background check.
+        }
+      };
+
+      const saveLabels = (next) => {
+        setLabels(next);
+        localStorage.setItem(LABELS_KEY, JSON.stringify(next));
+      };
+
+      const toggleOnThisDayPref = (val) => {
+        setShowOnThisDay(val);
+        localStorage.setItem(ON_THIS_DAY_KEY, String(val));
+      };
+
+      const handleSaveNote = async (noteData) => {
+        const noteToSave = {
+          id: noteData.id || 'note_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
+          type: noteData.type || 'text',
+          title: noteData.title || '',
+          content: noteData.content || '',
+          checklist: noteData.checklist || [],
+          images: noteData.images || [],
+          audioBlob: noteData.audioBlob || null,
+          duration: noteData.duration || 0,
+          transcript: noteData.transcript || '',
+          color: noteData.color || 'default',
+          reminder: noteData.reminder || null,
+          isPinned: noteData.isPinned || false,
+          isArchived: noteData.isArchived || false,
+          isTrash: noteData.isTrash || false,
+          tags: noteData.tags || [],
+          mood: noteData.mood || null,
+          createdAt: noteData.createdAt || Date.now(),
+          updatedAt: Date.now()
+        };
+
+        await dbSaveNote(noteToSave);
+        setNotes((prev) => {
+          const index = prev.findIndex((n) => n.id === noteToSave.id);
+          if (index >= 0) {
+            const updated = [...prev];
+            updated[index] = noteToSave;
+            return updated;
+          }
+          return [noteToSave, ...prev];
+        });
+      };
+
+      const triggerUndoableAction = (message, previousNotes, nextNotes) => {
+        setNotes(nextNotes);
+        nextNotes.forEach(n => dbSaveNote(n));
+
+        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        setUndoState({
+          message,
+          undoAction: () => {
+            setNotes(previousNotes);
+            previousNotes.forEach(n => dbSaveNote(n));
+            setUndoState(null);
+          }
+        });
+
+        undoTimerRef.current = setTimeout(() => {
+          setUndoState(null);
+        }, 5000);
+      };
+
+      const handleArchiveNote = (note) => {
+        const prev = [...notes];
+        const updated = notes.map(n => n.id === note.id ? { ...n, isArchived: !n.isArchived, isPinned: false } : n);
+        triggerUndoableAction(note.isArchived ? 'Note unarchived' : 'Note archived', prev, updated);
+      };
+
+      const handleTrashNote = (note) => {
+        const prev = [...notes];
+        const updated = notes.map(n => n.id === note.id ? { ...n, isTrash: true, isPinned: false } : n);
+        triggerUndoableAction('Note moved to trash', prev, updated);
+      };
+
+      const handleRestoreNote = (note) => {
+        const prev = [...notes];
+        const updated = notes.map(n => n.id === note.id ? { ...n, isTrash: false } : n);
+        triggerUndoableAction('Note restored', prev, updated);
+      };
+
+      // Bulk actions
+      const handleBulkArchive = () => {
+        const prev = [...notes];
+        const updated = notes.map(n => selectedNoteIds.includes(n.id) ? { ...n, isArchived: true, isPinned: false } : n);
+        triggerUndoableAction(`${selectedNoteIds.length} notes archived`, prev, updated);
+        setSelectedNoteIds([]);
+        setIsSelectMode(false);
+      };
+
+      const handleBulkTrash = () => {
+        const prev = [...notes];
+        const updated = notes.map(n => selectedNoteIds.includes(n.id) ? { ...n, isTrash: true, isPinned: false } : n);
+        triggerUndoableAction(`${selectedNoteIds.length} notes moved to trash`, prev, updated);
+        setSelectedNoteIds([]);
+        setIsSelectMode(false);
+      };
+
+      const handleBulkColor = (colorId) => {
+        const updated = notes.map(n => selectedNoteIds.includes(n.id) ? { ...n, color: colorId } : n);
+        setNotes(updated);
+        updated.filter(n => selectedNoteIds.includes(n.id)).forEach(n => dbSaveNote(n));
+        setSelectedNoteIds([]);
+        setIsSelectMode(false);
+      };
+
+      // Keyboard Shortcuts
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+            e.preventDefault();
+            setIsCommandPaletteOpen(true);
+          } else if (e.key === '/') {
+            e.preventDefault();
+            document.getElementById('global-search-input')?.focus();
+          } else if (e.key.toLowerCase() === 'n') {
+            e.preventDefault();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          } else if (e.key === 'Escape') {
+            setIsCommandPaletteOpen(false);
+            setIsSettingsOpen(false);
+            setIsVoiceRecorderOpen(false);
+            setIsDrawingModalOpen(false);
+            setLightboxImage(null);
+          }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, []);
+
+      // JSON Backup & Restore
+      const handleExportJSON = async () => {
+        const exportable = await Promise.all(
+          notes.map(async (n) => {
+            const copy = { ...n };
+            if (copy.audioBlob) {
+              copy.audioBlobBase64 = await blobToBase64(copy.audioBlob);
+              delete copy.audioBlob;
+            }
+            return copy;
+          })
+        );
+        const jsonStr = JSON.stringify(exportable, null, 2);
+        const filename = `kheyal_backup_${new Date().toISOString().slice(0, 10)}.json`;
+
+        // On mobile, offer the native share sheet first so it can go straight to Drive/Files/etc.
+        if (navigator.share) {
+          try {
+            const file = new File([jsonStr], filename, { type: 'application/json' });
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              await navigator.share({ files: [file], title: 'Kheyal Backup' });
+              return;
+            }
+          } catch (err) {
+            if (err && err.name === 'AbortError') return;
+            // fall through to direct download below
+          }
+        }
+
+        // Blob + object URL handles any backup size reliably, unlike a data: URL.
+        try {
+          const blob = new Blob([jsonStr], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.style.display = 'none';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => {
+            if (a.parentNode) a.parentNode.removeChild(a);
+            URL.revokeObjectURL(url);
+          }, 1000);
+        } catch (err) {
+          alert('Could not export backup: ' + err.message);
+        }
+      };
+
+      const handleImportJSON = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          try {
+            const imported = JSON.parse(event.target.result);
+            if (Array.isArray(imported)) {
+              for (const item of imported) {
+                if (item.audioBlobBase64) {
+                  item.audioBlob = await base64ToBlob(item.audioBlobBase64);
+                  delete item.audioBlobBase64;
+                }
+                await dbSaveNote(item);
+              }
+              setNotes(await dbGetAllNotes());
+              setIsSettingsOpen(false);
+            } else {
+              alert('This file doesn\'t look like a Kheyal backup.');
+            }
+          } catch (err) {
+            alert('Could not read this backup file. Make sure it\'s a valid Kheyal export.');
+          } finally {
+            e.target.value = '';
+          }
+        };
+        reader.onerror = () => {
+          alert('Error reading the selected file. Please try again.');
+          e.target.value = '';
+        };
+        reader.readAsText(file);
+      };
+
+      // "On This Day" calculation
+      const onThisDayNote = useMemo(() => {
+        if (!showOnThisDay || dismissedMemory) return null;
+        const now = new Date();
+        return notes.find(n => {
+          if (n.isTrash || n.isArchived) return false;
+          const created = new Date(n.createdAt || 0);
+          const diffDays = Math.round((now - created) / (1000 * 60 * 60 * 24));
+          return diffDays === 7 || diffDays === 30 || diffDays === 365;
+        });
+      }, [notes, showOnThisDay, dismissedMemory]);
+
+      // Filtered notes
+      const filteredNotes = useMemo(() => {
+        const q = searchQuery.toLowerCase().trim();
+        return notes.filter((n) => {
+          if (currentView === 'trash') {
+            if (!n.isTrash) return false;
+          } else {
+            if (n.isTrash) return false;
+            if (currentView === 'archive' && !n.isArchived) return false;
+            if (currentView === 'notes' && n.isArchived) return false;
+            if (currentView === 'reminders' && (!n.reminder || n.isArchived)) return false;
+            if (currentView === 'label' && selectedLabel && !(n.tags || []).includes(selectedLabel)) return false;
+          }
+          if (q) {
+            const titleMatch = (n.title || '').toLowerCase().includes(q);
+            const contentMatch = (n.content || '').toLowerCase().includes(q);
+            const checkMatch = (n.checklist || []).some(i => i.text.toLowerCase().includes(q));
+            const transcriptMatch = (n.transcript || '').toLowerCase().includes(q);
+            if (!titleMatch && !contentMatch && !checkMatch && !transcriptMatch) return false;
+          }
+          return true;
+        }).sort((a, b) => {
+          if (sortBy === 'created') return (b.createdAt || 0) - (a.createdAt || 0);
+          if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+          if (sortBy === 'color') return (a.color || '').localeCompare(b.color || '');
+          return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+        });
+      }, [notes, currentView, selectedLabel, searchQuery, sortBy]);
+
+      const pinnedNotes = useMemo(() => currentView === 'notes' ? filteredNotes.filter(n => n.isPinned) : [], [filteredNotes, currentView]);
+      const otherNotes = useMemo(() => currentView === 'notes' ? filteredNotes.filter(n => !n.isPinned) : filteredNotes, [filteredNotes, currentView]);
+
+      return (
+        <div className="min-h-screen">
+          {/* GitHub Update Notification Banner */}
+          {updateBannerInfo && (
+            <div className="bg-amber-500 text-white text-xs px-4 py-2 flex items-center justify-between font-medium">
+              <span>Update available: v{updateBannerInfo.version}</span>
+              <div className="flex items-center gap-3">
+                <a href={updateBannerInfo.url} target="_blank" rel="noreferrer" className="underline font-bold">View release</a>
+                <button
+                  onClick={() => {
+                    localStorage.setItem('notes_dismissed_version', updateBannerInfo.version);
+                    setUpdateBannerInfo(null);
+                  }}
+                  className="p-0.5 rounded hover:bg-black/10"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Header Bar */}
+          <header className="sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 py-3 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md border-b border-neutral-200/80 dark:border-neutral-800">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition"
+              >
+                <Icons.MoreVertical className="w-5 h-5 rotate-90" />
+              </button>
+              <div className="flex items-center gap-2.5 select-none">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20 font-bold">
+                  <Icons.NotesLogo className="w-5 h-5" />
+                </div>
+                <span className="text-xl font-bold tracking-tight text-neutral-900 dark:text-white">
+                  Kheyal
+                </span>
+              </div>
+            </div>
+
+            {/* Centered Search Box with Shortcut hint */}
+            <div className="flex-1 max-w-xl mx-4 sm:mx-8">
+              <div className="relative flex items-center">
+                <span className="absolute left-3.5 text-neutral-400">
+                  <Icons.Search className="w-4 h-4" />
+                </span>
+                <input
+                  id="global-search-input"
+                  type="text"
+                  placeholder="Search notes, audio, labels (Press /)..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-10 py-2 text-xs sm:text-sm bg-neutral-100 dark:bg-neutral-800/90 border border-transparent focus:border-neutral-300 dark:focus:border-neutral-700 rounded-2xl outline-none"
+                />
+                <button
+                  onClick={() => setIsCommandPaletteOpen(true)}
+                  className="absolute right-3 hidden sm:flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-500"
+                  title="Command Palette"
+                >
+                  ⌘K
+                </button>
+              </div>
+            </div>
+
+            {/* Right Buttons */}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="relative p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition"
+                title="Settings & Backup"
+              >
+                <Icons.Settings className="w-5 h-5" />
+                {updateBannerInfo && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500" />}
+              </button>
+              <button
+                onClick={() => setIsDarkMode(!isDarkMode)}
+                className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition"
+                title="Toggle Dark Mode"
+              >
+                {isDarkMode ? '☀️' : '🌙'}
+              </button>
+            </div>
+          </header>
+
+          <div className="flex">
+            {/* Sidebar */}
+            <aside
+              className={`fixed md:sticky top-[61px] z-20 h-[calc(100vh-61px)] bg-white dark:bg-neutral-900 border-r border-neutral-200/80 dark:border-neutral-800 transition-all duration-200 ease-in-out p-3 flex flex-col justify-between overflow-y-auto ${
+                sidebarOpen ? 'w-60' : 'w-16'
+              }`}
+            >
+              <div className="space-y-1">
+                <button
+                  onClick={() => { setCurrentView('notes'); setSelectedLabel(null); }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition ${
+                    currentView === 'notes'
+                      ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 shadow-sm'
+                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                  }`}
+                >
+                  <Icons.NotesLogo className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && <span>Notes</span>}
+                </button>
+
+                <button
+                  onClick={() => { setCurrentView('reminders'); setSelectedLabel(null); }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition ${
+                    currentView === 'reminders'
+                      ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 shadow-sm'
+                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                  }`}
+                >
+                  <Icons.Bell className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && <span>Reminders</span>}
+                </button>
+
+                {/* Custom Labels */}
+                {sidebarOpen && (
+                  <div className="pt-3 pb-1 px-3 text-[10px] font-bold text-neutral-400 uppercase tracking-wider">
+                    Labels
+                  </div>
+                )}
+                {labels.map((lbl) => (
+                  <button
+                    key={lbl}
+                    onClick={() => { setCurrentView('label'); setSelectedLabel(lbl); }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2 rounded-2xl text-xs transition ${
+                      currentView === 'label' && selectedLabel === lbl
+                        ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 font-semibold'
+                        : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                    }`}
+                  >
+                    <Icons.Tag className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                    {sidebarOpen && <span className="truncate">{lbl}</span>}
+                  </button>
+                ))}
+
+                <button
+                  onClick={() => setIsEditLabelsOpen(true)}
+                  className="w-full flex items-center gap-3 px-3.5 py-2 rounded-2xl text-xs text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
+                >
+                  <Icons.Brush className="w-3.5 h-3.5 flex-shrink-0" />
+                  {sidebarOpen && <span>Edit labels</span>}
+                </button>
+
+                <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800" />
+
+                <button
+                  onClick={() => { setCurrentView('archive'); setSelectedLabel(null); }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition ${
+                    currentView === 'archive'
+                      ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 shadow-sm'
+                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                  }`}
+                >
+                  <Icons.Archive className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && <span>Archive</span>}
+                </button>
+
+                <button
+                  onClick={() => { setCurrentView('trash'); setSelectedLabel(null); }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition ${
+                    currentView === 'trash'
+                      ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200 shadow-sm'
+                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                  }`}
+                >
+                  <Icons.Trash className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && <span>Trash</span>}
+                </button>
+              </div>
+
+              {sidebarOpen && (
+                <div className="pt-3 border-t border-neutral-100 dark:border-neutral-800">
+                  <button
+                    onClick={() => setIsVoiceRecorderOpen(true)}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs shadow-md shadow-amber-500/25 transition active:scale-95"
+                  >
+                    <Icons.Mic className="w-4 h-4" />
+                    <span>Record Voice</span>
+                  </button>
+                </div>
+              )}
+            </aside>
+
+            {/* Main Content Area */}
+            <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+              {/* "On This Day" Memory Widget */}
+              {onThisDayNote && (
+                <div className="mb-6 p-4 rounded-3xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/5 border border-amber-500/20 flex items-center justify-between gap-4 animate-popIn">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-2xl">✨</span>
+                    <div className="truncate">
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 block">On this day memory</span>
+                      <p className="text-xs font-semibold truncate text-neutral-800 dark:text-neutral-200">
+                        {onThisDayNote.title || onThisDayNote.content || 'Untitled memory'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setDismissedMemory(true)}
+                    className="text-xs text-neutral-400 hover:text-neutral-600 px-2 py-1"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
+
+              {/* Note Creator Bar */}
+              {currentView === 'notes' && !searchQuery && (
+                <div className="mb-8 max-w-2xl mx-auto">
+                  <NoteInput
+                    onSave={handleSaveNote}
+                    onOpenVoiceRecorder={() => setIsVoiceRecorderOpen(true)}
+                    onOpenDrawingModal={(cb) => { setDrawingCallback(() => cb); setIsDrawingModalOpen(true); }}
+                    isDarkMode={isDarkMode}
+                    labels={labels}
+                    onOpenZen={(t, c, cb) => setZenModalData({ title: t, content: c, onSave: cb })}
+                  />
+                </div>
+              )}
+
+              {/* Sort & View Options Toolbar */}
+              <div className="flex items-center justify-between pb-4 border-b border-neutral-200/60 dark:border-neutral-800/80 mb-6 gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { setIsSelectMode(!isSelectMode); setSelectedNoteIds([]); }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition ${isSelectMode ? 'bg-amber-500 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300'}`}
+                  >
+                    {isSelectMode ? 'Cancel Select' : 'Select'}
+                  </button>
+
+                  <div className="flex items-center gap-1 bg-neutral-100 dark:bg-neutral-800 p-0.5 rounded-xl text-xs">
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      className={`p-1.5 rounded-lg transition ${viewMode === 'grid' ? 'bg-white dark:bg-neutral-700 shadow-sm text-amber-500' : 'text-neutral-400'}`}
+                      title="Grid View"
+                    >
+                      <Icons.Grid className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`p-1.5 rounded-lg transition ${viewMode === 'list' ? 'bg-white dark:bg-neutral-700 shadow-sm text-amber-500' : 'text-neutral-400'}`}
+                      title="List View"
+                    >
+                      <Icons.List className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-neutral-400">Sort by:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="text-xs font-semibold bg-neutral-100 dark:bg-neutral-800 border-none px-3 py-1.5 rounded-xl outline-none cursor-pointer"
+                  >
+                    <option value="updated">Date Updated</option>
+                    <option value="created">Date Created</option>
+                    <option value="title">Alphabetical</option>
+                    <option value="color">Color</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Note Grid */}
+              <div className="space-y-8">
+                {pinnedNotes.length > 0 && (
+                  <div>
+                    <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 block px-1">
+                      Pinned ({pinnedNotes.length})
+                    </span>
+                    <div className={viewMode === 'grid' ? "columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 space-y-4" : "space-y-3"}>
+                      {pinnedNotes.map((note) => (
+                        <NoteCard
+                          key={note.id}
+                          note={note}
+                          isDark={isDarkMode}
+                          viewMode={viewMode}
+                          isSelected={selectedNoteIds.includes(note.id)}
+                          isSelectMode={isSelectMode}
+                          onToggleSelect={() => {
+                            setSelectedNoteIds(prev => prev.includes(note.id) ? prev.filter(id => id !== note.id) : [...prev, note.id]);
+                          }}
+                          onPin={() => handleSaveNote({ ...note, isPinned: !note.isPinned })}
+                          onArchive={() => handleArchiveNote(note)}
+                          onTrash={() => handleTrashNote(note)}
+                          onRestore={() => handleRestoreNote(note)}
+                          onDeletePermanent={async () => {
+                            await dbDeleteNotePermanently(note.id);
+                            setNotes(await dbGetAllNotes());
+                          }}
+                          onChangeColor={(c) => handleSaveNote({ ...note, color: c })}
+                          onDuplicate={() => handleSaveNote({ ...note, id: null, title: (note.title || '') + ' (Copy)' })}
+                          onShare={() => {
+                            const txt = (note.title ? note.title + '\n' : '') + (note.content || '');
+                            if (navigator.share) navigator.share({ text: txt }).catch(() => {});
+                            else {
+                              navigator.clipboard?.writeText(txt);
+                              alert('Note text copied to clipboard!');
+                            }
+                          }}
+                          onToggleChecklist={() => {
+                            if (note.type === 'checklist') {
+                              handleSaveNote({ ...note, type: 'text', content: (note.checklist || []).map(i => i.text).join('\n'), checklist: [] });
+                            } else {
+                              const items = (note.content || '').split('\n').filter(Boolean).map((t, idx) => ({ id: 'it_' + idx, text: t, checked: false }));
+                              handleSaveNote({ ...note, type: 'checklist', checklist: items, content: '' });
+                            }
+                          }}
+                          onSetReminder={(r) => handleSaveNote({ ...note, reminder: r })}
+                          onOpenLightbox={setLightboxImage}
+                          onOpenDrawingModal={(cb) => { setDrawingCallback(() => cb); setIsDrawingModalOpen(true); }}
+                          labels={labels}
+                          onToggleNoteLabel={(lbl) => {
+                            const cur = note.tags || [];
+                            const next = cur.includes(lbl) ? cur.filter(t => t !== lbl) : [...cur, lbl];
+                            handleSaveNote({ ...note, tags: next });
+                          }}
+                          onSetMood={(m) => handleSaveNote({ ...note, mood: m })}
+                          onUpdateNote={handleSaveNote}
+                          isTrashView={currentView === 'trash'}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {otherNotes.length > 0 && (
+                  <div>
+                    {pinnedNotes.length > 0 && (
+                      <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 block px-1">
+                        Others
+                      </span>
+                    )}
+                    <div className={viewMode === 'grid' ? "columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 space-y-4" : "space-y-3"}>
+                      {otherNotes.map((note) => (
+                        <NoteCard
+                          key={note.id}
+                          note={note}
+                          isDark={isDarkMode}
+                          viewMode={viewMode}
+                          isSelected={selectedNoteIds.includes(note.id)}
+                          isSelectMode={isSelectMode}
+                          onToggleSelect={() => {
+                            setSelectedNoteIds(prev => prev.includes(note.id) ? prev.filter(id => id !== note.id) : [...prev, note.id]);
+                          }}
+                          onPin={() => handleSaveNote({ ...note, isPinned: !note.isPinned })}
+                          onArchive={() => handleArchiveNote(note)}
+                          onTrash={() => handleTrashNote(note)}
+                          onRestore={() => handleRestoreNote(note)}
+                          onDeletePermanent={async () => {
+                            await dbDeleteNotePermanently(note.id);
+                            setNotes(await dbGetAllNotes());
+                          }}
+                          onChangeColor={(c) => handleSaveNote({ ...note, color: c })}
+                          onDuplicate={() => handleSaveNote({ ...note, id: null, title: (note.title || '') + ' (Copy)' })}
+                          onShare={() => {
+                            const txt = (note.title ? note.title + '\n' : '') + (note.content || '');
+                            if (navigator.share) navigator.share({ text: txt }).catch(() => {});
+                            else {
+                              navigator.clipboard?.writeText(txt);
+                              alert('Note text copied to clipboard!');
+                            }
+                          }}
+                          onToggleChecklist={() => {
+                            if (note.type === 'checklist') {
+                              handleSaveNote({ ...note, type: 'text', content: (note.checklist || []).map(i => i.text).join('\n'), checklist: [] });
+                            } else {
+                              const items = (note.content || '').split('\n').filter(Boolean).map((t, idx) => ({ id: 'it_' + idx, text: t, checked: false }));
+                              handleSaveNote({ ...note, type: 'checklist', checklist: items, content: '' });
+                            }
+                          }}
+                          onSetReminder={(r) => handleSaveNote({ ...note, reminder: r })}
+                          onOpenLightbox={setLightboxImage}
+                          onOpenDrawingModal={(cb) => { setDrawingCallback(() => cb); setIsDrawingModalOpen(true); }}
+                          labels={labels}
+                          onToggleNoteLabel={(lbl) => {
+                            const cur = note.tags || [];
+                            const next = cur.includes(lbl) ? cur.filter(t => t !== lbl) : [...cur, lbl];
+                            handleSaveNote({ ...note, tags: next });
+                          }}
+                          onSetMood={(m) => handleSaveNote({ ...note, mood: m })}
+                          onUpdateNote={handleSaveNote}
+                          isTrashView={currentView === 'trash'}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </main>
+          </div>
+
+          {/* Floating Bulk Action Bar */}
+          {isSelectMode && selectedNoteIds.length > 0 && (
+            <div className="fixed bottom-6 inset-x-0 z-40 max-w-md mx-auto px-4 animate-popIn">
+              <div className="p-3 px-5 rounded-3xl bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-2xl flex items-center justify-between gap-4">
+                <span className="text-xs font-bold">{selectedNoteIds.length} selected</span>
+                <div className="flex items-center gap-3">
+                  <button onClick={handleBulkArchive} className="text-xs font-semibold hover:text-amber-500">Archive</button>
+                  <button onClick={handleBulkTrash} className="text-xs font-semibold text-red-500 hover:underline">Delete</button>
+                  <ColorPickerPopover currentColor="default" onSelectColor={handleBulkColor} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Undo Snackbar */}
+          {undoState && (
+            <div className="fixed bottom-6 right-6 z-50 p-3 px-4 rounded-2xl bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-2xl flex items-center gap-4 text-xs font-medium animate-popIn">
+              <span>{undoState.message}</span>
+              <button
+                onClick={undoState.undoAction}
+                className="px-2.5 py-1 rounded-xl bg-amber-500 text-white font-bold hover:bg-amber-600 transition"
+              >
+                Undo
+              </button>
+            </div>
+          )}
+
+          {/* Modals */}
+          <DrawingModal
+            isOpen={isDrawingModalOpen}
+            onClose={() => setIsDrawingModalOpen(false)}
+            onSaveDrawing={(dataUrl) => drawingCallback && drawingCallback(dataUrl)}
+          />
+
+          <ZenFocusModal
+            isOpen={Boolean(zenModalData)}
+            onClose={() => setZenModalData(null)}
+            title={zenModalData?.title}
+            content={zenModalData?.content}
+            onSaveContent={zenModalData?.onSave || (() => {})}
+          />
+
+          <CommandPaletteModal
+            isOpen={isCommandPaletteOpen}
+            onClose={() => setIsCommandPaletteOpen(false)}
+            notes={notes}
+            onSelectAction={(actId) => {
+              if (actId === 'new_text') window.scrollTo({ top: 0, behavior: 'smooth' });
+              else if (actId === 'new_voice') setIsVoiceRecorderOpen(true);
+              else if (actId === 'toggle_theme') setIsDarkMode(!isDarkMode);
+              else if (actId === 'view_archive') setCurrentView('archive');
+              else if (actId === 'view_trash') setCurrentView('trash');
+              else if (actId === 'open_settings') setIsSettingsOpen(true);
+            }}
+            onOpenNote={(n) => {
+              // Scroll to note
+            }}
+          />
+
+          <EditLabelsModal
+            isOpen={isEditLabelsOpen}
+            onClose={() => setIsEditLabelsOpen(false)}
+            labels={labels}
+            onAddLabel={(l) => saveLabels([...labels, l])}
+            onRenameLabel={(oldL, newL) => {
+              if (!newL) return;
+              saveLabels(labels.map(l => l === oldL ? newL : l));
+            }}
+            onDeleteLabel={(l) => saveLabels(labels.filter(item => item !== l))}
+          />
+
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            notes={notes}
+            onExportNotes={handleExportJSON}
+            onImportNotes={handleImportJSON}
+            accentColor={accentColor}
+            onSelectAccent={applyAccent}
+            showOnThisDay={showOnThisDay}
+            onToggleOnThisDay={toggleOnThisDayPref}
+            updateBannerInfo={updateBannerInfo}
+            onCheckUpdates={() => checkForUpdates(true)}
+          />
+
+          {isVoiceRecorderOpen && (
+            <VoiceRecorderModal
+              isDark={isDarkMode}
+              onClose={() => setIsVoiceRecorderOpen(false)}
+              onSaveVoiceNote={async (vData) => {
+                await handleSaveNote(vData);
+                setIsVoiceRecorderOpen(false);
+              }}
+            />
+          )}
+
+          {lightboxImage && (
+            <div onClick={() => setLightboxImage(null)} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+              <img src={lightboxImage} alt="Large" className="max-w-full max-h-[85vh] object-contain rounded-3xl" />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
+    );
+  </script>
+</body>
+</html>
