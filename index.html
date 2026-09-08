@@ -2008,17 +2008,6 @@
               </div>
 
               <div className="space-y-2 pt-1 border-t border-neutral-100 dark:border-neutral-800 text-xs">
-                <div className="flex justify-between items-center text-neutral-400">
-                  <span>Source Repository</span>
-                  <a
-                    href={`https://github.com/${GITHUB_REPO}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-orange-600 hover:underline font-semibold"
-                  >
-                    github.com/{GITHUB_REPO}
-                  </a>
-                </div>
                 <div className="flex justify-between items-center text-neutral-400 pt-1">
                   <span>Updates</span>
                   <button
@@ -2409,27 +2398,27 @@
             )}
 
             {note.title && (
-              <h3 className="font-bold text-base mb-1 tracking-tight leading-snug break-words line-clamp-2">
+              <h3 className="font-bold text-lg sm:text-xl mb-1.5 tracking-tight leading-snug break-words line-clamp-2">
                 {note.title}
               </h3>
             )}
 
             {note.type === 'text' && note.content && (
-              <p className="text-xs sm:text-sm whitespace-pre-wrap leading-relaxed opacity-85 break-words line-clamp-4 mb-2">
+              <p className="text-sm sm:text-base whitespace-pre-wrap leading-relaxed opacity-90 break-words line-clamp-5 mb-2.5">
                 {note.content}
               </p>
             )}
 
             {note.type === 'checklist' && (
-              <div className="space-y-1 my-1.5 text-xs">
+              <div className="space-y-1.5 my-2 text-sm sm:text-base">
                 {unchecked.slice(0, 3).map((item) => (
                   <div key={item.id} className="flex items-center gap-2">
-                    <span className="w-3.5 h-3.5 rounded border border-neutral-400 flex-shrink-0" />
+                    <span className="w-4 h-4 rounded border border-neutral-400 flex-shrink-0" />
                     <span className="truncate">{item.text}</span>
                   </div>
                 ))}
                 {items.length > 3 && (
-                  <div className="pt-0.5 text-[11px] text-orange-600 dark:text-orange-400 font-semibold">
+                  <div className="pt-0.5 text-xs text-orange-600 dark:text-orange-400 font-semibold">
                     +{items.length - 3} more items...
                   </div>
                 )}
@@ -3086,47 +3075,48 @@
             )}
 
             <aside
+              style={{ paddingTop: 'max(var(--sat), 16px)' }}
               className={`
                 fixed top-0 bottom-0 left-0 z-50 md:z-20 md:sticky md:top-[65px] md:h-[calc(100vh-65px)]
                 bg-white dark:bg-[#121316] border-r border-neutral-200/80 dark:border-neutral-800
-                transition-all duration-300 ease-in-out p-3 flex flex-col justify-start overflow-y-auto
-                w-64 max-w-[80vw] shadow-2xl md:shadow-none
+                transition-all duration-300 ease-in-out p-4 flex flex-col justify-start overflow-y-auto
+                w-72 max-w-[85vw] shadow-2xl md:shadow-none
                 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-16'}
               `}
             >
-              <div className="space-y-1">
-                <div className="flex items-center justify-between px-2 py-2 mb-2 md:hidden border-b border-neutral-100 dark:border-neutral-800">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between px-2 py-2 mb-3 md:hidden border-b border-neutral-100 dark:border-neutral-800">
                   <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">Navigation</span>
-                  <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500">
-                    <Icons.Close className="w-4 h-4" />
+                  <button onClick={() => setSidebarOpen(false)} className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500">
+                    <Icons.Close className="w-5 h-5" />
                   </button>
                 </div>
 
                 <button
                   onClick={() => { setCurrentView('notes'); setSelectedLabel(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition ${
+                  className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm sm:text-base font-medium transition ${
                     currentView === 'notes'
-                      ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-semibold'
-                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                      ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-bold'
+                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200'
                   }`}
                 >
-                  <Icons.NotesLogo className="w-4 h-4 flex-shrink-0" />
+                  <Icons.NotesLogo className="w-5 h-5 flex-shrink-0" />
                   <span className={`${!sidebarOpen ? 'md:hidden' : ''}`}>Notes</span>
                 </button>
 
                 <button
                   onClick={() => { setCurrentView('reminders'); setSelectedLabel(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition ${
+                  className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm sm:text-base font-medium transition ${
                     currentView === 'reminders'
-                      ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-semibold'
-                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                      ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-bold'
+                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200'
                   }`}
                 >
-                  <Icons.Bell className="w-4 h-4 flex-shrink-0" />
+                  <Icons.Bell className="w-5 h-5 flex-shrink-0" />
                   <span className={`${!sidebarOpen ? 'md:hidden' : ''}`}>Reminders</span>
                 </button>
 
-                <div className={`pt-3 pb-1 px-3 text-[10px] font-bold text-neutral-400 uppercase tracking-wider ${!sidebarOpen ? 'md:hidden' : ''}`}>
+                <div className={`pt-4 pb-1.5 px-3 text-xs font-bold text-neutral-400 uppercase tracking-wider ${!sidebarOpen ? 'md:hidden' : ''}`}>
                   Labels
                 </div>
 
@@ -3134,22 +3124,22 @@
                   <button
                     key={lbl}
                     onClick={() => { setCurrentView('label'); setSelectedLabel(lbl); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2 rounded-2xl text-xs transition ${
+                    className={`w-full flex items-center gap-3.5 px-4 py-2.5 rounded-2xl text-sm sm:text-base transition ${
                       currentView === 'label' && selectedLabel === lbl
-                        ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-semibold'
-                        : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                        ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-bold'
+                        : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200'
                     }`}
                   >
-                    <Icons.Tag className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+                    <Icons.Tag className="w-4 h-4 text-neutral-400 flex-shrink-0" />
                     <span className={`truncate ${!sidebarOpen ? 'md:hidden' : ''}`}>{lbl}</span>
                   </button>
                 ))}
 
                 <button
                   onClick={() => { setIsEditLabelsOpen(true); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2 rounded-2xl text-xs text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
+                  className="w-full flex items-center gap-3.5 px-4 py-2.5 rounded-2xl text-sm text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition"
                 >
-                  <Icons.Brush className="w-3.5 h-3.5 flex-shrink-0" />
+                  <Icons.Brush className="w-4 h-4 flex-shrink-0" />
                   <span className={`${!sidebarOpen ? 'md:hidden' : ''}`}>Edit labels</span>
                 </button>
 
@@ -3157,25 +3147,25 @@
 
                 <button
                   onClick={() => { setCurrentView('archive'); setSelectedLabel(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition ${
+                  className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm sm:text-base font-medium transition ${
                     currentView === 'archive'
-                      ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-semibold'
-                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                      ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-bold'
+                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200'
                   }`}
                 >
-                  <Icons.Archive className="w-4 h-4 flex-shrink-0" />
+                  <Icons.Archive className="w-5 h-5 flex-shrink-0" />
                   <span className={`${!sidebarOpen ? 'md:hidden' : ''}`}>Archive</span>
                 </button>
 
                 <button
                   onClick={() => { setCurrentView('trash'); setSelectedLabel(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition ${
+                  className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm sm:text-base font-medium transition ${
                     currentView === 'trash'
-                      ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-semibold'
-                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300'
+                      ? 'bg-orange-600/10 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 font-bold'
+                      : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200'
                   }`}
                 >
-                  <Icons.Trash className="w-4 h-4 flex-shrink-0" />
+                  <Icons.Trash className="w-5 h-5 flex-shrink-0" />
                   <span className={`${!sidebarOpen ? 'md:hidden' : ''}`}>Trash</span>
                 </button>
 
@@ -3183,26 +3173,26 @@
 
                 <button
                   onClick={() => { setIsSettingsOpen(true); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
+                  className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm sm:text-base font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200"
                 >
-                  <Icons.Settings className="w-4 h-4 flex-shrink-0" />
+                  <Icons.Settings className="w-5 h-5 flex-shrink-0" />
                   <span className={`${!sidebarOpen ? 'md:hidden' : ''}`}>Settings</span>
                 </button>
 
                 <button
                   onClick={() => { setIsDataModalOpen(true); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
+                  className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm sm:text-base font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200"
                 >
-                  <Icons.Database className="w-4 h-4 flex-shrink-0" />
+                  <Icons.Database className="w-5 h-5 flex-shrink-0" />
                   <span className={`${!sidebarOpen ? 'md:hidden' : ''}`}>Your Data</span>
                 </button>
 
                 <button
                   onClick={() => { setIsAboutModalOpen(true); if (window.innerWidth < 768) setSidebarOpen(false); }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300"
+                  className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-sm sm:text-base font-medium transition hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200"
                 >
                   <div className="relative flex items-center justify-center">
-                    <Icons.Info className="w-4 h-4 flex-shrink-0" />
+                    <Icons.Info className="w-5 h-5 flex-shrink-0" />
                     {updateBannerInfo && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500" />}
                   </div>
                   <span className={`${!sidebarOpen ? 'md:hidden' : ''}`}>About</span>
