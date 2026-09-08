@@ -65,19 +65,15 @@
     input, textarea {
       user-select: text;
     }
+    /* Hide unnatural visible scrollbar bar while keeping touch scrolling smooth and natural */
     ::-webkit-scrollbar {
-      width: 5px;
-      height: 5px;
+      display: none;
+      width: 0px;
+      height: 0px;
     }
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: rgba(156, 163, 175, 0.35);
-      border-radius: 9999px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgba(156, 163, 175, 0.65);
+    * {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
     }
     @keyframes popIn {
       0% { opacity: 0; transform: scale(0.96) translateY(5px); }
@@ -2974,7 +2970,7 @@
       const otherNotes = useMemo(() => currentView === 'notes' ? filteredNotes.filter(n => !n.isPinned) : filteredNotes, [filteredNotes, currentView]);
 
       return (
-        <div className="min-h-screen relative pb-28">
+        <div className="relative pb-24">
           {/* Update Notification Banner */}
           {updateBannerInfo && (
             <div className="bg-orange-600 text-white text-xs sm:text-sm px-4 py-2.5 flex items-center justify-between font-medium shadow-md">
