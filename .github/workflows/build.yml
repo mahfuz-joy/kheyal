@@ -37,6 +37,17 @@ jobs:
       - name: Prepare Web Files & App Icon Assets
         run: |
           mkdir -p www assets
+          
+          # Release Tag থেকে অটোমেটিক ভার্সন নম্বর নেওয়া (যেমন v1.2.7 -> 1.2.7)
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          if [ -z "$TAG_VER" ] || [ "$TAG_VER" = "main" ]; then
+            TAG_VER="1.2.7"
+          fi
+          echo "Building for version: $TAG_VER"
+
+          # index.html ফাইলের APP_VERSION নিজে থেকেই আপডেট করবে
+          sed -i "s/const APP_VERSION = \".*\";/const APP_VERSION = \"$TAG_VER\";/g" index.html
+          
           cp index.html www/index.html
           
           # Create app icon base image (1024x1024)
