@@ -2658,28 +2658,42 @@
         window.open(DIRECT_APK_URL, '_system');
       };
 
-      const checkForUpdates = async (alertIfUpToDate = false) => {
+   const checkForUpdates = async (alertIfUpToDate = false) => {
         try {
-          const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+          const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+            headers: { 'Accept': 'application/vnd.github.v3+json' },
+            cache: 'no-store'
+          });
+
           if (res.ok) {
             const data = await res.json();
-            const latestTag = (data.tag_name || '').replace(/^v/, '');
+            const latestTag = (data.tag_name || '').replace(/^v/, '').trim();
             const dismissed = localStorage.getItem('notes_dismissed_version');
             const isNewer = latestTag && compareVersions(latestTag, APP_VERSION) > 0;
+
             if (isNewer && dismissed !== latestTag) {
               setUpdateBannerInfo({ version: latestTag, url: data.html_url });
-              if (alertIfUpToDate) showToast(`Update v${latestTag} available! Tap download above.`);
+              if (alertIfUpToDate) showToast(`Update v${latestTag} available! Click download above.`);
             } else {
               setUpdateBannerInfo(null);
               if (alertIfUpToDate) {
                 showToast('App is already on the latest version!');
               }
             }
+          } else if (res.status === 403 || res.status === 404) {
+            // API রেট লিমিট থাকলে সরাসরি ফলব্যাক চেক
+            if (alertIfUpToDate) {
+              showToast('Checking via browser...');
+              window.open(`https://github.com/${GITHUB_REPO}/releases/latest`, '_system');
+            }
           } else if (alertIfUpToDate) {
             showToast('Could not check for updates right now.');
           }
         } catch (e) {
-          if (alertIfUpToDate) showToast('Could not check for updates.');
+          if (alertIfUpToDate) {
+            // ইন্টারনেট অফলাইন থাকলে বা নেটওয়ার্ক এরর হলে
+            showToast('Network error. Check internet connection.');
+          }
         }
       };
 
