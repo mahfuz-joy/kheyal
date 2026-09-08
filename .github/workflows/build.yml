@@ -20,46 +20,54 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup Java JDK 21
+      - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          distribution: temurin
+          java-version: "21"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Web Assets Directory
-        run: |
-          mkdir -p www
-          cp index.html www/
-
-      - name: Convert HTML to Android Project & Build APK
+      - name: Install Capacitor
         run: |
           npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android
-          npx cap init Kheyal com.mahfuzjoy.kheyal --web-dir www
-          npx cap add android
-          npx cap sync android
 
-          # Fix Duplicate Class Conflict
-          cat << 'EOF' >> android/app/build.gradle
+      - name: Prepare Web Files
+        run: |
+          mkdir -p www
+          cp index.html www/index.html
 
-          configurations.all {
-              exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
-              exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+      - name: Create Capacitor Config
+        run: |
+          cat > capacitor.config.json << EOF
+          {
+            "appId": "com.mahfuzjoy.kheyal",
+            "appName": "Kheyal",
+            "webDir": "www"
           }
           EOF
 
+      - name: Add Android Platform
+        run: |
+          npx cap add android
+
+      - name: Sync Web Files
+        run: |
+          npx cap sync android
+
+      - name: Build APK
+        run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Prepare Named APK
+      - name: Prepare APK
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk kheyal.apk
 
-      - name: Upload APK to Release (When Tagged)
+      - name: Upload APK to Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
@@ -67,7 +75,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Save APK Artifact (For Manual Run)
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kheyal.apk
