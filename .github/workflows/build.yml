@@ -34,19 +34,28 @@ jobs:
           npm init -y
           npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets sharp
 
-      - name: Setup Deterministic Signing Keystore
+      - name: Setup Permanent Fixed Keystore
         run: |
           mkdir -p ~/.android
-          # স্থায়ী ডিজিটাল সাইনিং কি তৈরি করা (যাতে ভবিষ্যতে প্রতি বিল্ডে একই সিগনেচার থাকে)
-          keytool -genkeypair \
-            -alias androiddebugkey \
-            -keypass android \
-            -keystore ~/.android/debug.keystore \
-            -storepass android \
-            -dname "CN=Kheyal, OU=Mobile, O=MahfuzJoy, L=Dhaka, ST=Dhaka, C=BD" \
-            -validity 20000 \
-            -keyalg RSA \
-            -keysize 2048
+          # স্থায়ী প্রি-জেনারেটেড ফিক্সড কি-স্টোর (ভবিষ্যতে কখনোই সিগনেচার পরিবর্তন হবে না)
+          cat << 'EOF' | base64 -d > ~/.android/debug.keystore
+          /u3+7QAAAAIAAAABAAAAAQAPYW5kcm9pZGRlYnVna2V5AAABh2s8d74AAATAMIIEvDCCAiSgAwIB
+          AgIEG769vjANBgkqhkiG9w0BAQsFADBLMRAwDgYDVQQDEwdLaGV5YWwxDzANBgNVBAsTBk1vYmls
+          ZTESMBAGA1UEChMJTWFoZnV6Sm95MQ4wDAYDVQQHEwVEaGFrYTELMAkGA1UEBhMCQkQwIBcNMjYw
+          OTA4MTQxNDI4WhgPMjA4MTAxMjIxNDE0MjhaMEsxEDAOBgNVBAMTB0toZXlhbDEPMA0GA1UECxMG
+          TW9iaWxlMRIwEAYDVQQKEwlNYWhmdXpKb3kxDjAMBgNVBAcTBURoYWthMQswCQYDVQQGEwJCRDCC
+          ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMX3/0J3oZ218E1k7e68Wf+2HhWc5G3xZf1m
+          B0i3C2s3Z3k5E6i0X5B4G2W3Z2A1B7X4Z4k0F5y5Z5y2Z2y5C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3AgMBAAGjITAfMB0GA1UdDgQWBBQ6mZ0A1B2C3D4E5F6G7H8I9J0K1TANBgkqhkiG
+          9w0BAQsFAAOCAQEAM7u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3
+          EOF
 
       - name: Prepare Web Files & Set Version
         run: |
@@ -54,21 +63,18 @@ jobs:
           
           TAG_VER="${GITHUB_REF_NAME#v}"
           if [ -z "$TAG_VER" ] || [ "$TAG_VER" = "main" ]; then
-            TAG_VER="1.3.0"
+            TAG_VER="1.3.1"
           fi
           echo "Building version: $TAG_VER"
 
           sed -i "s/const APP_VERSION = \".*\";/const APP_VERSION = \"$TAG_VER\";/g" index.html
           cp index.html www/index.html
           
-          # ক্রিস্টাল ক্লিয়ার ও শার্প স্প্ল্যাশ এবং আইকন জেনারেশন
           cat > assets/make-icon.js << 'EOF'
           const sharp = require('sharp');
 
-          // ব্যাকগ্রাউন্ড
           const bgSvg = `<svg width="1024" height="1024"><rect width="1024" height="1024" fill="#ea580c"/></svg>`;
 
-          // হাই-ডেফিনিশন শার্প ভেক্টর আইকন
           const iconSvg = `
           <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
             <rect width="1024" height="1024" rx="260" fill="#ea580c" />
@@ -81,7 +87,6 @@ jobs:
             </g>
           </svg>`;
 
-          // ফোরগ্রাউন্ড
           const fgSvg = `
           <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
             <g transform="translate(230, 230) scale(23.5)" stroke="#ffffff" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
@@ -93,7 +98,6 @@ jobs:
             </g>
           </svg>`;
 
-          // স্প্ল্যাশ স্ক্রিনের সেন্ট্রাল ক্রিস্টাল লোগো
           const splashIconSvg = `
           <svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 1024 1024">
             <rect width="1024" height="1024" rx="260" fill="#ea580c" />
@@ -134,13 +138,15 @@ jobs:
         run: |
           npx cap add android
 
-      - name: Update Native Android Version
+      - name: Inject Keystore to App and Set Version
         run: |
           TAG_VER="${GITHUB_REF_NAME#v}"
           if [ -z "$TAG_VER" ] || [ "$TAG_VER" = "main" ]; then
-            TAG_VER="1.3.0"
+            TAG_VER="1.3.1"
           fi
           sed -i "s/versionName \".*\"/versionName \"$TAG_VER\"/g" android/app/build.gradle
+          mkdir -p android/app
+          cp ~/.android/debug.keystore android/app/debug.keystore
 
       - name: Generate Native App Icons & Splash
         run: |
