@@ -41,13 +41,15 @@ jobs:
 
       - name: Create Capacitor Config
         run: |
-          cat > capacitor.config.json << EOF
+          cat > capacitor.config.json << 'EOF'
           {
             "appId": "com.mahfuzjoy.kheyal",
             "appName": "Kheyal",
             "webDir": "www"
           }
           EOF
+
+          cat capacitor.config.json
 
       - name: Add Android Platform
         run: |
