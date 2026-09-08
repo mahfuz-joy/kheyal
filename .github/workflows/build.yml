@@ -42,7 +42,7 @@ jobs:
           npx cap add android
           npx cap sync android
 
-          # Fix Duplicate Class Conflict in Gradle
+          # Fix Duplicate Class Conflict
           cat << 'EOF' >> android/app/build.gradle
 
           configurations.all {
@@ -55,16 +55,20 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
+      - name: Prepare Named APK
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk kheyal.apk
+
       - name: Upload APK to Release (When Tagged)
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          files: kheyal.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Save APK Artifact (For Manual Run)
         uses: actions/upload-artifact@v4
         with:
-          name: kheyal-app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: kheyal.apk
+          path: kheyal.apk
