@@ -29,15 +29,63 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Capacitor
+      - name: Install Dependencies
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets sharp
 
-      - name: Prepare Web Files
+      - name: Prepare Web Files & App Icon Assets
         run: |
-          mkdir -p www
+          mkdir -p www assets
           cp index.html www/index.html
+          
+          # Create app icon base image (1024x1024)
+          cat > assets/make-icon.js << 'EOF'
+          const fs = require('fs');
+          const sharp = require('sharp');
+
+          const svg = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+            <defs>
+              <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#ea580c" />
+                <stop offset="100%" stop-color="#f59e0b" />
+              </linearGradient>
+            </defs>
+            <rect width="1024" height="1024" rx="260" fill="url(#grad)" />
+            <g transform="translate(140, 140) scale(7.4)" stroke="white" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5C4 19.5 6 18.5 7.5 17C9 15.5 9.5 13.5 9.5 13.5L16.5 6.5C17.3 5.7 18.7 5.7 19.5 6.5C20.3 7.3 20.3 8.7 19.5 9.5L12.5 16.5C12.5 16.5 10.5 17 9 18.5C7.5 20 6.5 22 6.5 22L4 19.5Z" fill="white" fill-opacity="0.25"/>
+              <path d="M15 8L18 11" stroke-width="7" />
+              <path d="M17.5 14.5C19 15.5 19 17.5 17.5 18.5" stroke-width="7" />
+              <path d="M20 12.5C22.5 14.5 22.5 19.5 20 21.5" stroke-width="7" />
+              <circle cx="6" cy="6" r="2" fill="white" stroke="none" />
+            </g>
+          </svg>`;
+
+          sharp(Buffer.from(svg))
+            .png()
+            .toFile('assets/icon-only.png')
+            .then(() => sharp('assets/icon-only.png').toFile('assets/icon-foreground.png'))
+            .then(() => sharp({
+              create: {
+                width: 1024,
+                height: 1024,
+                channels: 4,
+                background: { r: 234, g: 88, b: 12, alpha: 1 }
+              }
+            }).png().toFile('assets/icon-background.png'))
+            .then(() => sharp({
+              create: {
+                width: 2732,
+                height: 2732,
+                channels: 4,
+                background: { r: 24, g: 25, b: 29, alpha: 1 }
+              }
+            }).composite([{ input: 'assets/icon-only.png', gravity: 'center' }]).png().toFile('assets/splash.png'))
+            .then(() => sharp('assets/splash.png').toFile('assets/splash-dark.png'))
+            .catch(err => console.error(err));
+          EOF
+          node assets/make-icon.js
 
       - name: Create Capacitor Config
         run: |
@@ -48,11 +96,14 @@ jobs:
             "webDir": "www"
           }
           EOF
-          cat capacitor.config.json
 
       - name: Add Android Platform
         run: |
           npx cap add android
+
+      - name: Generate Native App Icons & Splash
+        run: |
+          npx @capacitor/assets generate --android
 
       - name: Sync Web Files
         run: |
