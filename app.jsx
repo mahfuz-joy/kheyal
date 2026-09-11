@@ -2454,15 +2454,19 @@ function App() {
 
   const checkForUpdates = async (alertIfUpToDate = false) => {
     try {
+      // Hit public GitHub release redirect instead of rate-limited api.github.com
       const res = await fetch(`https://github.com/${GITHUB_REPO}/releases/latest`, {
+        method: 'GET',
         cache: 'no-store',
         redirect: 'follow'
       });
 
       if (res.ok) {
-        const finalUrl = res.url;
+        // final URL resolves to: https://github.com/:owner/:repo/releases/tag/vX.Y.Z
+        const finalUrl = res.url || '';
         const match = finalUrl.match(/\/tag\/(.+)$/);
-        const latestTag = match ? decodeURIComponent(match[1]).replace(/^v/, '').trim() : '';
+        const latestTag = match ? decodeURIComponent(match[1]).replace(/^v/i, '').split(/[/?#]/)[0].trim() : '';
+
         const dismissed = localStorage.getItem('notes_dismissed_version');
         const isNewer = latestTag && compareVersions(latestTag, APP_VERSION) > 0;
 
@@ -3387,4 +3391,3 @@ root.render(
     <App />
   </AppErrorBoundary>
 );
-```[cite: 2]
