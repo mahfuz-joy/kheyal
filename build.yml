@@ -1,0 +1,231 @@
+name: Auto Build APK
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Dependencies
+        run: |
+          npm init -y
+          npm install react react-dom @capacitor/core @capacitor/cli @capacitor/android @capacitor/app @capacitor/assets sharp esbuild tailwindcss@^3
+
+      - name: Setup Permanent Fixed Keystore
+        run: |
+          mkdir -p ~/.android
+          cat << 'EOF' | base64 -d > ~/.android/debug.keystore
+          /u3+7QAAAAIAAAABAAAAAQAPYW5kcm9pZGRlYnVna2V5AAABh2s8d74AAATAMIIEvDCCAiSgAwIB
+          AgIEG769vjANBgkqhkiG9w0BAQsFADBLMRAwDgYDVQQDEwdLaGV5YWwxDzANBgNVBAsTBk1vYmls
+          ZTESMBAGA1UEChMJTWFoZnV6Sm95MQ4wDAYDVQQHEwVEaGFrYTELMAkGA1UEBhMCQkQwIBcNMjYw
+          OTA4MTQxNDI4WhgPMjA4MTAxMjIxNDE0MjhaMEsxEDAOBgNVBAMTB0toZXlhbDEPMA0GA1UECxMG
+          TW9iaWxlMRIwEAYDVQQKEwlNYWhmdXpKb3kxDjAMBgNVBAcTBURoYWthMQswCQYDVQQGEwJCRDCC
+          ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMX3/0J3oZ218E1k7e68Wf+2HhWc5G3xZf1m
+          B0i3C2s3Z3k5E6i0X5B4G2W3Z2A1B7X4Z4k0F5y5Z5y2Z2y5C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3AgMBAAGjITAfMB0GA1UdDgQWBBQ6mZ0A1B2C3D4E5F6G7H8I9J0K1TANBgkqhkiG
+          9w0BAQsFAAOCAQEAM7u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3C3u3
+          C3u3C3u3C3u3
+          EOF
+
+      - name: Prepare Web Bundle & Offline Assets
+        run: |
+          mkdir -p www/js www/css assets
+
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          if [ -z "$TAG_VER" ] || [ "$TAG_VER" = "main" ]; then
+            TAG_VER="1.3.1"
+          fi
+          echo "Building version: $TAG_VER"
+
+          sed -i "s/const APP_VERSION = \".*\";/const APP_VERSION = \"$TAG_VER\";/g" index.html
+          cp index.html www/index.html
+
+          npx esbuild app.jsx --bundle --minify --loader:.jsx=jsx --target=es2020 --outfile=www/js/app.bundle.js --global-name=KheyalApp
+
+          cat > tailwind.config.js << 'EOF'
+          module.exports = {
+            darkMode: 'class',
+            content: ['./www/index.html', './app.jsx'],
+            theme: {
+              extend: {
+                colors: {
+                  accent: {
+                    DEFAULT: 'var(--accent-color, #ea580c)',
+                    hover: 'var(--accent-hover, #c2410c)',
+                    light: 'var(--accent-light, rgba(234, 88, 12, 0.12))',
+                    ring: 'var(--accent-ring, rgba(234, 88, 12, 0.35))',
+                  }
+                }
+              },
+            },
+          }
+          EOF
+
+          cat > input.css << 'EOF'
+          @tailwind base;
+          @tailwind components;
+          @tailwind utilities;
+          EOF
+
+          npx tailwindcss -i ./input.css -o ./www/css/tailwind.min.css --minify
+
+          cat > assets/make-icon.js << 'EOF'
+          const sharp = require('sharp');
+          const bgSvg = `<svg width="1024" height="1024"><rect width="1024" height="1024" fill="#ea580c"/></svg>`;
+          const iconSvg = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+            <rect width="1024" height="1024" rx="260" fill="#ea580c" />
+            <g transform="translate(190, 190) scale(26.8)" stroke="#ffffff" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5C4 19.5 6 18.5 7.5 17C9 15.5 9.5 13.5 9.5 13.5L16.5 6.5C17.3 5.7 18.7 5.7 19.5 6.5C20.3 7.3 20.3 8.7 19.5 9.5L12.5 16.5C12.5 16.5 10.5 17 9 18.5C7.5 20 6.5 22 6.5 22L4 19.5Z" fill="#ffffff" fill-opacity="0.32"/>
+              <path d="M15 8L18 11" stroke-width="2.6" />
+              <path d="M17.5 14.5C19 15.5 19 17.5 17.5 18.5" stroke-width="2.6" />
+              <path d="M20 12.5C22.5 14.5 22.5 19.5 20 21.5" stroke-width="2.6" />
+              <circle cx="6" cy="6" r="1.4" fill="#ffffff" stroke="none"/>
+            </g>
+          </svg>`;
+          const splashIconSvg = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 1024 1024">
+            <rect width="1024" height="1024" rx="260" fill="#ea580c" />
+            <g transform="translate(190, 190) scale(26.8)" stroke="#ffffff" fill="none" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5C4 19.5 6 18.5 7.5 17C9 15.5 9.5 13.5 9.5 13.5L16.5 6.5C17.3 5.7 18.7 5.7 19.5 6.5C20.3 7.3 20.3 8.7 19.5 9.5L12.5 16.5C12.5 16.5 10.5 17 9 18.5C7.5 20 6.5 22 6.5 22L4 19.5Z" fill="#ffffff" fill-opacity="0.32"/>
+              <path d="M15 8L18 11" stroke-width="2.6" />
+              <path d="M17.5 14.5C19 15.5 19 17.5 17.5 18.5" stroke-width="2.6" />
+              <path d="M20 12.5C22.5 14.5 22.5 19.5 20 21.5" stroke-width="2.6" />
+              <circle cx="6" cy="6" r="1.4" fill="#ffffff" stroke="none"/>
+            </g>
+          </svg>`;
+
+          Promise.all([
+            sharp(Buffer.from(bgSvg)).png().toFile('assets/icon-background.png'),
+            sharp(Buffer.from(iconSvg)).png().toFile('assets/icon-foreground.png'),
+            sharp(Buffer.from(iconSvg)).png().toFile('assets/icon-only.png'),
+            sharp({ create: { width: 2732, height: 2732, channels: 4, background: { r: 18, g: 19, b: 22, alpha: 1 } } })
+              .composite([{ input: Buffer.from(splashIconSvg), gravity: 'center' }])
+              .png().toFile('assets/splash.png'),
+            sharp({ create: { width: 2732, height: 2732, channels: 4, background: { r: 18, g: 19, b: 22, alpha: 1 } } })
+              .composite([{ input: Buffer.from(splashIconSvg), gravity: 'center' }])
+              .png().toFile('assets/splash-dark.png')
+          ]).then(() => console.log('Assets created.'));
+          EOF
+          node assets/make-icon.js
+        env:
+          TAG_VER: ${{ github.ref_name }}
+
+      - name: Create Capacitor Config
+        run: |
+          cat > capacitor.config.json << 'EOF'
+          {
+            "appId": "com.mahfuzjoy.kheyal",
+            "appName": "Kheyal",
+            "webDir": "www"
+          }
+          EOF
+
+      - name: Add Android Platform
+        run: |
+          npx cap add android
+
+      - name: Inject Keystore, Permissions & Build Config
+        run: |
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          if [ -z "$TAG_VER" ] || [ "$TAG_VER" = "main" ]; then
+            TAG_VER="1.3.1"
+          fi
+          sed -i "s/versionName \".*\"/versionName \"$TAG_VER\"/g" android/app/build.gradle
+          mkdir -p android/app
+          cp ~/.android/debug.keystore android/app/debug.keystore
+
+          sed -i '/<\/manifest>/i \    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' android/app/src/main/AndroidManifest.xml
+
+          cat >> android/app/build.gradle << 'EOF'
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file('debug.keystore')
+                      storePassword 'android'
+                      keyAlias 'androiddebugkey'
+                      keyPassword 'android'
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                      minifyEnabled false
+                  }
+              }
+          }
+          EOF
+
+      - name: Generate Native App Icons & Splash
+        run: |
+          npx @capacitor/assets generate --android
+
+      - name: Sync Web Files
+        run: |
+          npx cap sync android
+
+      - name: Fix Duplicate Kotlin Classes
+        run: |
+          cat >> android/build.gradle << 'EOF'
+          subprojects {
+              configurations.all {
+                  resolutionStrategy.eachDependency { details ->
+                      if (details.requested.group == 'org.jetbrains.kotlin') {
+                        details.useVersion '1.8.22'
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Prepare APK
+        run: |
+          cp android/app/build/outputs/apk/release/app-release-unsigned.apk kheyal.apk 2>/dev/null || cp android/app/build/outputs/apk/release/app-release.apk kheyal.apk || cp android/app/build/outputs/apk/debug/app-debug.apk kheyal.apk
+
+      - name: Upload APK to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: kheyal.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kheyal.apk
+          path: kheyal.apk

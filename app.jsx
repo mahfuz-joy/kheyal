@@ -1,0 +1,3388 @@
+import React, { useState, useEffect, useRef, useMemo, useCallback, Component } from 'react';
+import ReactDOM from 'react-dom/client';
+import { App as CapacitorApp } from '@capacitor/app';
+
+const APP_VERSION = "1.3.1";
+const GITHUB_REPO = "mahfuz-joy/kheyal";
+const DIRECT_APK_URL = `https://github.com/${GITHUB_REPO}/releases/latest/download/kheyal.apk`;
+
+const DB_NAME = 'ModernNotesDB';
+const DB_VERSION = 4;
+const STORE_NAME = 'notes';
+const FALLBACK_KEY = 'modern_notes_fallback_data_v4';
+const LABELS_KEY = 'notes_app_custom_labels';
+const ON_THIS_DAY_KEY = 'notes_show_on_this_day';
+
+/* Top-Level Error Boundary */
+class AppErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("Kheyal Error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6 bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-white">
+          <div className="max-w-md w-full p-6 rounded-3xl bg-white dark:bg-neutral-800 shadow-2xl border border-red-200 dark:border-red-900 text-center space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 flex items-center justify-center mx-auto text-xl font-bold">⚠️</div>
+            <h2 className="text-base font-bold">Something went wrong</h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Your notes are preserved. Click below to reload.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs shadow-md transition"
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function openDatabase() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error('IndexedDB not supported'));
+    try {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+          store.createIndex('updatedAt', 'updatedAt', { unique: false });
+          store.createIndex('reminder', 'reminder', { unique: false });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+function syncToFallback(notes) {
+  try {
+    const serialized = notes.map(n => {
+      const c = { ...n };
+      delete c.audioBlob;
+      return c;
+    });
+    localStorage.setItem(FALLBACK_KEY, JSON.stringify(serialized));
+  } catch (e) {}
+}
+
+function getFallbackNotes() {
+  try {
+    const raw = localStorage.getItem(FALLBACK_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function dbGetAllNotes() {
+  try {
+    const db = await openDatabase();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const result = request.result || [];
+        syncToFallback(result);
+        resolve(result);
+      };
+      request.onerror = () => resolve(getFallbackNotes());
+    });
+  } catch (e) {
+    return getFallbackNotes();
+  }
+}
+
+async function dbSaveNote(note) {
+  try {
+    const db = await openDatabase();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      store.put(note);
+      tx.oncomplete = () => resolve(note);
+      tx.onerror = () => resolve(note);
+    });
+  } catch (e) {
+    return note;
+  }
+}
+
+async function dbDeleteNotePermanently(id) {
+  try {
+    const db = await openDatabase();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch (e) {}
+}
+
+async function blobToBase64(blob) {
+  if (!blob) return null;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function base64ToBlob(base64Data) {
+  if (!base64Data) return null;
+  try {
+    const res = await fetch(base64Data);
+    return await res.blob();
+  } catch (e) {
+    return null;
+  }
+}
+
+const ACCENT_COLORS = [
+  { id: 'terracotta', name: 'Terracotta', color: '#ea580c', hover: '#c2410c', light: 'rgba(234, 88, 12, 0.12)', ring: 'rgba(234, 88, 12, 0.35)' },
+  { id: 'saffron', name: 'Saffron', color: '#d97706', hover: '#b45309', light: 'rgba(217, 119, 6, 0.12)', ring: 'rgba(217, 119, 6, 0.35)' },
+  { id: 'nordic', name: 'Nordic Indigo', color: '#4f46e5', hover: '#4338ca', light: 'rgba(79, 70, 229, 0.12)', ring: 'rgba(79, 70, 229, 0.35)' },
+  { id: 'emerald', name: 'Jade', color: '#059669', hover: '#047857', light: 'rgba(5, 150, 105, 0.12)', ring: 'rgba(5, 150, 105, 0.35)' },
+  { id: 'plum', name: 'Mulberry', color: '#9333ea', hover: '#7e22ce', light: 'rgba(147, 51, 234, 0.12)', ring: 'rgba(147, 51, 234, 0.35)' },
+];
+
+const COLOR_OPTIONS = [
+  { id: 'default', name: 'Clean Canvas', lightClass: 'bg-white border-neutral-200/90 text-neutral-800 shadow-sm', darkClass: 'bg-[#18191d] border-neutral-800/90 text-neutral-100 shadow-sm', swatch: 'bg-white border-neutral-300 dark:bg-neutral-800 dark:border-neutral-700' },
+  { id: 'chai', name: 'Chai Oat', lightClass: 'bg-[#FAF6EF] border-[#E8DFD1] text-[#3D3325]', darkClass: 'bg-[#1E1B15] border-[#362E22] text-[#EDE4D5]', swatch: 'bg-[#FAF6EF] border-[#D9CEBC] dark:bg-[#2A241C]' },
+  { id: 'clay', name: 'Terracotta Clay', lightClass: 'bg-[#FDF3EE] border-[#F2DACF] text-[#54281B]', darkClass: 'bg-[#241713] border-[#442820] text-[#F9E2D8]', swatch: 'bg-[#FCD8C9] border-[#E6B8A5] dark:bg-[#3D211A]' },
+  { id: 'sage', name: 'Organic Sage', lightClass: 'bg-[#F2F7F4] border-[#D4E5DB] text-[#1E3E2F]', darkClass: 'bg-[#14211B] border-[#253E31] text-[#DCEDE3]', swatch: 'bg-[#CBE4D6] border-[#A9CEBA] dark:bg-[#1E3629]' },
+  { id: 'mist', name: 'Nordic Mist', lightClass: 'bg-[#F1F6FA] border-[#D1E1EC] text-[#1A3850]', darkClass: 'bg-[#131E27] border-[#243747] text-[#D8E9F6]', swatch: 'bg-[#CCE1F0] border-[#A8CBE3] dark:bg-[#1C3243]' },
+  { id: 'lavender', name: 'Dusk Lavender', lightClass: 'bg-[#F7F3FB] border-[#E2D6F2] text-[#3E245C]', darkClass: 'bg-[#1F162A] border-[#3B2952] text-[#EFE4FD]', swatch: 'bg-[#E0CDF5] border-[#C3A6E8] dark:bg-[#2E1E41]' },
+  { id: 'olive', name: 'Olive Linen', lightClass: 'bg-[#F6F7F0] border-[#DFE3CF] text-[#363B20]', darkClass: 'bg-[#1A1D13] border-[#333822] text-[#E9ECD9]', swatch: 'bg-[#DDE2C1] border-[#BFC798] dark:bg-[#2A301B]' },
+  { id: 'rose', name: 'Petal Quartz', lightClass: 'bg-[#FDF2F5] border-[#F3D3DE] text-[#571F32]', darkClass: 'bg-[#25141B] border-[#472230] text-[#FCE0EB]', swatch: 'bg-[#F8CAD9] border-[#E69FB5] dark:bg-[#3F1B2A]' },
+  { id: 'slate', name: 'Architect Slate', lightClass: 'bg-[#F4F5F7] border-[#D8DCE3] text-[#222938]', darkClass: 'bg-[#171A21] border-[#2B3240] text-[#E0E4EC]', swatch: 'bg-[#D0D7E3] border-[#AAB4C6] dark:bg-[#222938]' }
+];
+
+const EMOJI_MOODS = ['💡', '❤️', '🎯', '📌', '🚀', '☕'];
+
+const TEMPLATES = [
+  {
+    id: 'meeting',
+    name: 'Meeting Notes',
+    type: 'text',
+    title: 'Meeting Notes: [Topic]',
+    content: '📅 Date: ' + new Date().toLocaleDateString() + '\n👥 Attendees:\n- \n\n🎯 Objectives:\n1. \n\n📝 Discussion Points:\n- \n\n✅ Action Items:\n- [ ] Follow up on '
+  },
+  {
+    id: 'journal',
+    name: 'Daily Reflection',
+    type: 'text',
+    title: 'Daily Reflection - ' + new Date().toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
+    content: '🌟 What went well today?\n- \n\n💡 What did I learn?\n- \n\n🧘 Gratitude:\n1. \n2. \n3. '
+  },
+  {
+    id: 'shopping',
+    name: 'Shopping List',
+    type: 'checklist',
+    title: 'Groceries & Supplies',
+    checklist: [
+      { id: 's1', text: 'Fresh fruits & vegetables', checked: false },
+      { id: 's2', text: 'Milk & Bread', checked: false },
+      { id: 's3', text: 'Coffee beans / Tea', checked: false }
+    ]
+  },
+  {
+    id: 'ideadump',
+    name: 'Idea Dump',
+    type: 'text',
+    title: 'Quick Brain Dump 💡',
+    content: 'Core Idea:\n- \n\nWhy it matters:\n- \n\nNext Steps:\n1. \n2. '
+  }
+];
+
+function getColorClass(colorId, isDark) {
+  const found = COLOR_OPTIONS.find((c) => c.id === colorId) || COLOR_OPTIONS[0];
+  return isDark ? found.darkClass : found.lightClass;
+}
+
+function formatTime(sec) {
+  if (isNaN(sec) || sec < 0) return '00:00';
+  const minutes = Math.floor(sec / 60);
+  const seconds = Math.floor(sec % 60);
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatReminderDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (isToday) return `Today, ${timeStr}`;
+  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
+}
+
+function compareVersions(v1, v2) {
+  if (!v1 || !v2) return 0;
+  const parse = (v) => String(v).replace(/^v/i, '').trim().split(/[.\-+]/).map((x) => parseInt(x, 10) || 0);
+  const p1 = parse(v1);
+  const p2 = parse(v2);
+  const max = Math.max(p1.length, p2.length);
+  for (let i = 0; i < max; i++) {
+    const a = p1[i] || 0;
+    const b = p2[i] || 0;
+    if (a > b) return 1;
+    if (a < b) return -1;
+  }
+  return 0;
+}
+
+const Icons = {
+  Menu: ({ className = "w-5 h-5" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="6" x2="21" y2="6" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  ),
+  Search: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  Mic: ({ className = "w-4 h-4" }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="2" width="6" height="11" rx="3" />
+      <path d="M5 10a7 7 0 0 0 14 0" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+    </svg>
+  ),
+  Pin: ({ className = "w-4 h-4", filled = false }) => (
+    <svg className={className} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.89A2 2 0 0 1 15 10.76V6h1a1 1 0 0 0 0-2H8a1 1 0 0 0 0 2h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.89A2 2 0 0 0 5 15.24V17z" />
+    </svg>
+  ),
+  Archive: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="21 8 21 21 3 21 3 8" />
+      <rect x="1" y="3" width="22" height="5" />
+      <line x1="10" y1="12" x2="14" y2="12" />
+    </svg>
+  ),
+  Trash: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </svg>
+  ),
+  Palette: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+      <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+      <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+      <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
+    </svg>
+  ),
+  Bell: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  ),
+  Tag: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+      <line x1="7" y1="7" x2="7.01" y2="7" />
+    </svg>
+  ),
+  Brush: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z" />
+      <path d="M9 8c-2 3-4 3.5-7 4l8 8c.5-3 1-5 4-7" />
+      <path d="M14.5 17.5 4.5 15" />
+    </svg>
+  ),
+  Checklist: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="9 11 12 14 22 4" />
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+    </svg>
+  ),
+  Image: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <polyline points="21 15 16 10 5 21" />
+    </svg>
+  ),
+  MoreVertical: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="12" cy="5" r="1" />
+      <circle cx="12" cy="19" r="1" />
+    </svg>
+  ),
+  NotesLogo: ({ className = "w-5 h-5" }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M3.5 19.5C3.5 19.5 5.5 18.5 7 17C8.5 15.5 9 13.5 9 13.5L16.2 6.3C17 5.5 18.4 5.5 19.2 6.3C20 7.1 20 8.5 19.2 9.3L12 16.5C12 16.5 10 17 8.5 18.5C7 20 6 22 6 22L3.5 19.5Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M14.5 7.5L17.5 10.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M17.5 14.5C19 15.5 19 17.5 17.5 18.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <path d="M20 12.5C22.5 14.5 22.5 19.5 20 21.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      <circle cx="6" cy="6" r="1.5" fill="currentColor"/>
+    </svg>
+  ),
+  Settings: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  ),
+  Check: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+  Plus: ({ className = "w-5 h-5" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  ),
+  Play: ({ className = "w-4 h-4" }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  ),
+  Pause: ({ className = "w-4 h-4" }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="4" width="4" height="16" rx="1" />
+      <rect x="14" y="4" width="4" height="16" rx="1" />
+    </svg>
+  ),
+  Stop: ({ className = "w-4 h-4" }) => (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  ),
+  Close: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  ),
+  Template: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <line x1="3" y1="9" x2="21" y2="9" />
+      <line x1="9" y1="21" x2="9" y2="9" />
+    </svg>
+  ),
+  Share: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  ),
+  Grid: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+    </svg>
+  ),
+  List: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" />
+      <line x1="3" y1="12" x2="3.01" y2="12" />
+      <line x1="3" y1="18" x2="3.01" y2="18" />
+    </svg>
+  ),
+  Command: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z" />
+    </svg>
+  ),
+  Database: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+    </svg>
+  ),
+  Info: ({ className = "w-4 h-4" }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  )
+};
+
+function ColorPickerPopover({ currentColor, onSelectColor }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative inline-block" ref={ref} onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen(prev => !prev);
+        }}
+        className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition"
+        title="Note Color"
+      >
+        <Icons.Palette className="w-4 h-4" />
+      </button>
+
+      {open && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute left-0 bottom-full mb-3 z-[100] p-3 rounded-2xl bg-white dark:bg-neutral-800 shadow-2xl border border-neutral-200 dark:border-neutral-700 animate-popIn"
+          style={{ width: '250px', minWidth: '250px' }}
+        >
+          <span className="block text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider mb-2.5 px-0.5">
+            Select Color
+          </span>
+          <div className="grid grid-cols-5 gap-2.5 justify-items-center">
+            {COLOR_OPTIONS.map((c) => {
+              const isSelected = (currentColor || 'default') === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onSelectColor(c.id);
+                    setOpen(false);
+                  }}
+                  className={`w-8 h-8 rounded-full border border-neutral-300 dark:border-neutral-600 flex items-center justify-center transition hover:scale-110 active:scale-95 shadow-sm ${c.swatch} ${
+                    isSelected ? 'ring-2 ring-orange-500 ring-offset-2 scale-105' : ''
+                  }`}
+                  title={c.name}
+                >
+                  {isSelected && (
+                    <Icons.Check className="w-4 h-4 text-neutral-800 dark:text-neutral-100 drop-shadow" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReminderPopover({ reminder, onSetReminder }) {
+  const [open, setOpen] = useState(false);
+  const [customDate, setCustomDate] = useState('');
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [open]);
+
+  const setPreset = (type) => {
+    if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
+    const d = new Date();
+    if (type === 'later') d.setHours(20, 0, 0, 0);
+    else if (type === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); }
+    else if (type === 'nextweek') { d.setDate(d.getDate() + 7); d.setHours(9, 0, 0, 0); }
+    onSetReminder(d.toISOString());
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative inline-block" ref={ref} onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen(!open);
+        }}
+        className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition"
+        title="Set Reminder"
+      >
+        <Icons.Bell className="w-4 h-4" />
+      </button>
+
+      {open && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute left-0 bottom-full mb-3 z-[100] w-56 p-3 rounded-2xl bg-white dark:bg-neutral-800 shadow-2xl border border-neutral-200 dark:border-neutral-700 animate-popIn text-xs space-y-2"
+        >
+          <span className="px-1 font-semibold text-[11px] text-neutral-400 block uppercase tracking-wider">Reminder</span>
+          <button onClick={() => setPreset('later')} className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-700 flex justify-between">
+            <span>Later today</span><span className="text-neutral-400 font-mono">8:00 PM</span>
+          </button>
+          <button onClick={() => setPreset('tomorrow')} className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-700 flex justify-between">
+            <span>Tomorrow</span><span className="text-neutral-400 font-mono">9:00 AM</span>
+          </button>
+          <button onClick={() => setPreset('nextweek')} className="w-full text-left px-2.5 py-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-700 flex justify-between">
+            <span>Next week</span><span className="text-neutral-400 font-mono">Mon 9:00 AM</span>
+          </button>
+
+          <div className="pt-2 border-t border-neutral-100 dark:border-neutral-700 px-0.5">
+            <input
+              type="datetime-local"
+              value={customDate}
+              onChange={(e) => setCustomDate(e.target.value)}
+              className="w-full p-2 text-xs rounded-xl bg-neutral-100 dark:bg-neutral-900 outline-none"
+            />
+            <div className="flex justify-between items-center mt-2.5">
+              {reminder && (
+                <button onClick={() => { onSetReminder(null); setOpen(false); }} className="text-red-500 hover:underline text-xs">
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (customDate) {
+                    if (window.Notification && Notification.permission === 'default') Notification.requestPermission();
+                    onSetReminder(new Date(customDate).toISOString());
+                    setOpen(false);
+                  }
+                }}
+                className="ml-auto px-3.5 py-1.5 rounded-xl bg-orange-600 text-white font-semibold text-xs"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NoteDetailModal({
+  note,
+  isDark,
+  isOpen,
+  onClose,
+  onSave,
+  onTrash,
+  onOpenDrawingModal,
+  onOpenLightbox,
+  labels
+}) {
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [checklist, setChecklist] = useState([]);
+  const [color, setColor] = useState('default');
+  const [isPinned, setIsPinned] = useState(false);
+  const [reminder, setReminder] = useState(null);
+  const [tags, setTags] = useState([]);
+  const [images, setImages] = useState([]);
+  const [mood, setMood] = useState(null);
+  const [mode, setMode] = useState('text');
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!note) return;
+    setTitle(note.title || '');
+    setContent(note.content || '');
+    setChecklist(note.checklist || []);
+    setColor(note.color || 'default');
+    setIsPinned(Boolean(note.isPinned));
+    setReminder(note.reminder || null);
+    setTags(note.tags || []);
+    setImages(note.images || []);
+    setMood(note.mood || null);
+    setMode(note.type || 'text');
+  }, [note, isOpen]);
+
+  if (!isOpen || !note) return null;
+
+  const handleSaveAndClose = () => {
+    onSave({
+      ...note,
+      title: title.trim(),
+      content: mode === 'text' ? content : '',
+      checklist: mode === 'checklist' ? checklist.filter(i => i.text.trim()) : [],
+      type: mode,
+      color,
+      isPinned,
+      reminder,
+      tags,
+      images,
+      mood,
+      updatedAt: Date.now()
+    });
+    onClose();
+  };
+
+  const cardColorClass = getColorClass(color, isDark);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/65 backdrop-blur-sm animate-popIn">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`w-full max-w-2xl max-h-[90vh] rounded-3xl border shadow-2xl flex flex-col overflow-hidden transition-colors ${cardColorClass}`}
+      >
+        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-black/5 dark:border-white/10">
+          <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+            {mode === 'voice' ? 'Voice Memo' : mode === 'checklist' ? 'Checklist Note' : 'Note Details'}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsPinned(!isPinned)}
+              className={`p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition ${
+                isPinned ? 'text-orange-600' : 'text-neutral-400'
+              }`}
+              title={isPinned ? 'Unpin' : 'Pin'}
+            >
+              <Icons.Pin className="w-5 h-5" filled={isPinned} />
+            </button>
+            <button
+              onClick={handleSaveAndClose}
+              className="p-1.5 rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition"
+              title="Close"
+            >
+              <Icons.Close className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2 pb-2">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative rounded-2xl overflow-hidden shadow-sm group">
+                  <img
+                    src={img}
+                    alt="Attachment"
+                    onClick={() => onOpenLightbox(img)}
+                    className="h-28 w-32 object-cover rounded-2xl cursor-pointer hover:opacity-90"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setImages(images.filter((_, i) => i !== idx))}
+                    className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center text-xs hover:bg-red-600 shadow"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            type="text"
+            placeholder="Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full bg-transparent font-bold text-xl sm:text-2xl outline-none placeholder-neutral-400"
+          />
+
+          {mode === 'text' ? (
+            <textarea
+              placeholder="Note details..."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={8}
+              className="w-full bg-transparent text-sm sm:text-base resize-none outline-none placeholder-neutral-400 leading-relaxed"
+            />
+          ) : (
+            <div className="space-y-2 py-1">
+              {checklist.map((item) => (
+                <div key={item.id} className="flex items-center gap-3 p-1">
+                  <input
+                    type="checkbox"
+                    checked={item.checked}
+                    onChange={(e) => {
+                      setChecklist(checklist.map(i => i.id === item.id ? { ...i, checked: e.target.checked } : i));
+                    }}
+                    className="w-4 h-4 rounded text-orange-600 accent-orange-600 cursor-pointer"
+                  />
+                  <input
+                    type="text"
+                    value={item.text}
+                    onChange={(e) => {
+                      setChecklist(checklist.map(i => i.id === item.id ? { ...i, text: e.target.value } : i));
+                    }}
+                    placeholder="List item..."
+                    className={`w-full bg-transparent text-sm outline-none ${item.checked ? 'line-through opacity-50' : ''}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setChecklist(checklist.filter(i => i.id !== item.id))}
+                    className="text-neutral-400 hover:text-red-500 p-1 rounded"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setChecklist([...checklist, { id: 'it_' + Date.now(), text: '', checked: false }])}
+                className="flex items-center gap-2 text-sm font-semibold text-orange-600 dark:text-orange-400 py-2 px-1 hover:underline"
+              >
+                + Add checklist item
+              </button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2 pt-2">
+            {mood && <span className="text-base">{mood}</span>}
+            {reminder && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-orange-600/15 text-orange-700 dark:text-orange-400 font-medium">
+                <Icons.Bell className="w-3.5 h-3.5" />
+                {formatReminderDate(reminder)}
+                <button onClick={() => setReminder(null)} className="ml-1 hover:text-red-500">×</button>
+              </span>
+            )}
+            {tags.map((t) => (
+              <span key={t} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-black/5 dark:bg-white/10 font-medium">
+                #{t}
+                <button onClick={() => setTags(tags.filter(item => item !== t))} className="ml-1 hover:text-red-500">×</button>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between p-4 px-5 border-t border-black/5 dark:border-white/10 flex-wrap gap-2">
+          <div className="flex items-center gap-1.5">
+            <ColorPickerPopover currentColor={color} onSelectColor={setColor} />
+            <ReminderPopover reminder={reminder} onSetReminder={setReminder} />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 transition"
+              title="Attach Image"
+            >
+              <Icons.Image className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenDrawingModal((img) => setImages(prev => [...prev, img]))}
+              className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 transition"
+              title="Add Drawing"
+            >
+              <Icons.Brush className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode(mode === 'text' ? 'checklist' : 'text')}
+              className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 transition"
+              title="Toggle Checklist"
+            >
+              <Icons.Checklist className="w-4 h-4" />
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  const reader = new FileReader();
+                  reader.onload = (ev) => setImages(prev => [...prev, ev.target.result]);
+                  reader.readAsDataURL(e.target.files[0]);
+                }
+              }}
+              className="hidden"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { onTrash(note); onClose(); }}
+              className="p-2 rounded-xl text-neutral-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+              title="Delete Note"
+            >
+              <Icons.Trash className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleSaveAndClose}
+              className="px-5 py-2 text-xs font-semibold rounded-xl bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 hover:opacity-90 active:scale-95 transition shadow"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VoiceRecorderModal({ isDark, onClose, onSaveVoiceNote }) {
+  const [recordingState, setRecordingState] = useState('recording');
+  const [elapsed, setElapsed] = useState(0);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [noteTitle, setNoteTitle] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const timerRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    let streamTrack = null;
+    async function startRecording() {
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setErrorMessage('Microphone access is not supported on this browser/device.');
+          return;
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+        streamTrack = stream;
+
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioCtx();
+        audioContextRef.current = audioCtx;
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 128;
+        analyserRef.current = analyser;
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        let mimeType = 'audio/webm';
+        if (!MediaRecorder.isTypeSupported('audio/webm')) {
+          if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+          else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
+          else mimeType = '';
+        }
+
+        const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+        mediaRecorderRef.current = mr;
+        audioChunksRef.current = [];
+
+        mr.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
+        };
+
+        mr.onstop = () => {
+          const blob = new Blob(audioChunksRef.current, { type: mr.mimeType || 'audio/webm' });
+          setAudioBlob(blob);
+          setAudioUrl(URL.createObjectURL(blob));
+          setRecordingState('stopped');
+          setNoteTitle(`Voice Memo - ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+          stream.getTracks().forEach(t => t.stop());
+        };
+
+        mr.start(100);
+        timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+      } catch (err) {
+        console.error("Mic error:", err);
+        setErrorMessage('Microphone access was denied. Please allow microphone permissions.');
+      }
+    }
+
+    startRecording();
+
+    return () => {
+      clearInterval(timerRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try { mediaRecorderRef.current.stop(); } catch (e) {}
+      }
+      if (streamTrack) {
+        streamTrack.getTracks().forEach(t => t.stop());
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        try { audioContextRef.current.close(); } catch (e) {}
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let animId;
+    const bufferLength = analyserRef.current ? analyserRef.current.frequencyBinCount : 64;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const renderWave = () => {
+      animId = requestAnimationFrame(renderWave);
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+
+      if (!analyserRef.current || recordingState !== 'recording') {
+        ctx.beginPath();
+        ctx.moveTo(0, height / 2);
+        ctx.lineTo(width, height / 2);
+        ctx.strokeStyle = 'rgba(234, 88, 12, 0.4)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        return;
+      }
+
+      analyserRef.current.getByteFrequencyData(dataArray);
+      const barCount = 34;
+      const barWidth = 4;
+      const step = Math.floor(bufferLength / barCount);
+      const totalBarsWidth = barCount * barWidth;
+      const gap = (width - totalBarsWidth) / (barCount + 1);
+
+      for (let i = 0; i < barCount; i++) {
+        const val = dataArray[i * step] || 0;
+        const percent = val / 255;
+        const barHeight = Math.max(4, percent * (height - 12));
+        const x = gap + i * (barWidth + gap);
+        const y = (height - barHeight) / 2;
+
+        const grad = ctx.createLinearGradient(0, y, 0, y + barHeight);
+        grad.addColorStop(0, '#ea580c');
+        grad.addColorStop(1, '#f59e0b');
+
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, y, barWidth, barHeight, 2);
+        else ctx.rect(x, y, barWidth, barHeight);
+        ctx.fill();
+      }
+    };
+
+    renderWave();
+    return () => cancelAnimationFrame(animId);
+  }, [recordingState]);
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+    };
+  }, [audioUrl]);
+
+  const pauseRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.pause();
+      setRecordingState('paused');
+      clearInterval(timerRef.current);
+    }
+  };
+
+  const resumeRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      mediaRecorderRef.current.resume();
+      setRecordingState('recording');
+      timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    }
+  };
+
+  const stopRecording = () => {
+    clearInterval(timerRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const handleSave = () => {
+    onSaveVoiceNote({
+      type: 'voice',
+      title: noteTitle.trim() || 'Voice Memo',
+      audioBlob,
+      duration: elapsed,
+      color: 'clay'
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+      <div className="w-full max-w-md rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-6 shadow-2xl text-center space-y-5">
+        <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+            <h3 className="font-bold text-sm">Voice Studio (Offline)</h3>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-600">
+            <Icons.Close className="w-4 h-4" />
+          </button>
+        </div>
+
+        {errorMessage ? (
+          <div className="space-y-4 py-3">
+            <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs leading-relaxed">
+              {errorMessage}
+            </div>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200"
+            >
+              Close
+            </button>
+          </div>
+        ) : recordingState !== 'stopped' ? (
+          <div className="space-y-4">
+            <div className="text-4xl font-mono font-bold text-orange-600 tracking-wider">
+              {formatTime(elapsed)}
+            </div>
+
+            <canvas
+              ref={canvasRef}
+              width={340}
+              height={65}
+              className="w-full h-16 rounded-2xl bg-orange-600/5 dark:bg-orange-600/10 border border-orange-600/15"
+            />
+
+            <div className="flex items-center justify-center gap-6 pt-2">
+              {recordingState === 'recording' ? (
+                <button
+                  onClick={pauseRecording}
+                  className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 flex items-center justify-center shadow transition active:scale-90"
+                  title="Pause"
+                >
+                  <Icons.Pause className="w-5 h-5" />
+                </button>
+              ) : (
+                <button
+                  onClick={resumeRecording}
+                  className="w-12 h-12 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 flex items-center justify-center shadow transition active:scale-90"
+                  title="Resume"
+                >
+                  <Icons.Play className="w-5 h-5 ml-0.5" />
+                </button>
+              )}
+
+              <div
+                onClick={stopRecording}
+                className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center cursor-pointer shadow-xl animate-glowPulse transition active:scale-95"
+                title="Done Recording"
+              >
+                <Icons.Stop className="w-7 h-7" />
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-400">Tap square button when done</p>
+          </div>
+        ) : (
+          <div className="space-y-4 text-left">
+            <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-medium flex items-center gap-2">
+              <Icons.Check className="w-4 h-4" />
+              <span>Recording ready ({formatTime(elapsed)})! Give it a title:</span>
+            </div>
+
+            {audioUrl && <audio src={audioUrl} controls className="w-full h-10 rounded-xl" />}
+
+            <div>
+              <label className="block text-xs font-semibold text-neutral-500 mb-1">Title</label>
+              <input
+                type="text"
+                value={noteTitle}
+                onChange={(e) => setNoteTitle(e.target.value)}
+                className="w-full p-2.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs font-medium outline-none"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={onClose} className="px-4 py-2 text-xs font-semibold rounded-xl text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition">
+                Discard
+              </button>
+              <button onClick={handleSave} className="px-5 py-2 text-xs font-semibold rounded-xl bg-orange-600 hover:bg-orange-700 text-white shadow-md transition active:scale-95">
+                Save Voice Note
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DrawingModal({ isOpen, onClose, onSaveDrawing }) {
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [brushColor, setBrushColor] = useState('#18181b');
+  const [brushSize, setBrushSize] = useState(4);
+  const [history, setHistory] = useState([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    canvas.width = canvas.parentElement.clientWidth || 520;
+    canvas.height = 340;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    setHistory([canvas.toDataURL()]);
+  }, [isOpen]);
+
+  const startDraw = (e) => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    ctx.beginPath();
+    ctx.moveTo(clientX - rect.left, clientY - rect.top);
+    setIsDrawing(true);
+  };
+
+  const draw = (e) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    ctx.lineTo(clientX - rect.left, clientY - rect.top);
+    ctx.strokeStyle = brushColor;
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  };
+
+  const stopDraw = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      setHistory((prev) => [...prev.slice(-15), canvas.toDataURL()]);
+    }
+  };
+
+  const handleUndo = () => {
+    if (history.length <= 1) return;
+    const prev = history[history.length - 2];
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      setHistory(history.slice(0, -1));
+    };
+    img.src = prev;
+  };
+
+  const handleSave = () => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      onSaveDrawing(canvas.toDataURL('image/png'));
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+  const colors = ['#18181b', '#ea580c', '#d97706', '#059669', '#4f46e5', '#9333ea', '#ffffff'];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+      <div className="w-full max-w-lg bg-white dark:bg-neutral-900 rounded-3xl border border-neutral-200 dark:border-neutral-800 shadow-2xl p-5 flex flex-col gap-4">
+        <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800">
+          <div className="flex items-center gap-2 font-semibold text-sm">
+            <Icons.Brush className="w-4 h-4 text-orange-600" />
+            <span>Draw / Sketch</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={handleUndo} className="px-2.5 py-1 text-xs rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 transition">
+              Undo
+            </button>
+            <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-600 transition">
+              <Icons.Close className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="w-full bg-white rounded-2xl overflow-hidden border border-neutral-200 shadow-inner flex justify-center">
+          <canvas
+            ref={canvasRef}
+            onMouseDown={startDraw}
+            onMouseMove={draw}
+            onMouseUp={stopDraw}
+            onTouchStart={startDraw}
+            onTouchMove={draw}
+            onTouchEnd={stopDraw}
+            className="touch-none cursor-crosshair"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <div className="flex items-center gap-2">
+            {colors.map((c) => (
+              <button
+                key={c}
+                onClick={() => setBrushColor(c)}
+                style={{ backgroundColor: c }}
+                className={`w-6 h-6 rounded-full border border-neutral-300 transition ${brushColor === c ? 'scale-125 ring-2 ring-orange-500' : ''}`}
+                title={c === '#ffffff' ? 'Eraser' : c}
+              />
+            ))}
+            <div className="w-px h-4 bg-neutral-200 dark:bg-neutral-800 mx-1" />
+            {[2, 5, 10].map((sz) => (
+              <button
+                key={sz}
+                onClick={() => setBrushSize(sz)}
+                className={`w-6 h-6 rounded-md text-xs font-bold flex items-center justify-center ${brushSize === sz ? 'bg-orange-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800'}`}
+              >
+                {sz === 2 ? 'S' : sz === 5 ? 'M' : 'L'}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-medium text-xs shadow-md shadow-orange-600/25 transition active:scale-95"
+          >
+            Insert Drawing
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommandPaletteModal({ isOpen, onClose, onSelectAction, notes, onOpenNote }) {
+  const [search, setSearch] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const staticActions = [
+    { id: 'act_new_text', name: 'Create new text note', icon: '📝', action: () => onSelectAction('new_text') },
+    { id: 'act_new_check', name: 'Create new checklist', icon: '✅', action: () => onSelectAction('new_checklist') },
+    { id: 'act_new_voice', name: 'Record voice memo', icon: '🎙️', action: () => onSelectAction('new_voice') },
+    { id: 'act_toggle_theme', name: 'Toggle dark / light mode', icon: '🌓', action: () => onSelectAction('toggle_theme') },
+    { id: 'act_view_archive', name: 'Go to Archive', icon: '📥', action: () => onSelectAction('view_archive') },
+    { id: 'act_view_trash', name: 'Go to Trash', icon: '🗑️', action: () => onSelectAction('view_trash') },
+    { id: 'act_open_settings', name: 'Open Settings & Backup', icon: '⚙️', action: () => onSelectAction('open_settings') },
+  ];
+
+  const matchingNotes = useMemo(() => {
+    if (!search.trim()) return [];
+    const q = search.toLowerCase();
+    return notes.filter(n => (n.title || '').toLowerCase().includes(q) || (n.content || '').toLowerCase().includes(q)).slice(0, 5);
+  }, [search, notes]);
+
+  const items = useMemo(() => {
+    if (!search.trim()) return staticActions;
+    const q = search.toLowerCase();
+    const filteredActions = staticActions.filter(a => a.name.toLowerCase().includes(q));
+    const noteItems = matchingNotes.map(n => ({
+      id: n.id,
+      name: n.title || 'Untitled Note',
+      icon: n.type === 'voice' ? '🎙️' : n.type === 'checklist' ? '✅' : '📄',
+      action: () => onOpenNote(n)
+    }));
+    return [...filteredActions, ...noteItems];
+  }, [search, matchingNotes]);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [items]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev + 1) % items.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev - 1 + items.length) % items.length);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (items[selectedIndex]) {
+          items[selectedIndex].action();
+          onClose();
+        }
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, items, selectedIndex, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-black/50 backdrop-blur-sm animate-popIn">
+      <div className="w-full max-w-lg rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl overflow-hidden">
+        <div className="flex items-center px-4 py-3.5 border-b border-neutral-100 dark:border-neutral-800 gap-3">
+          <Icons.Command className="w-4 h-4 text-neutral-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Type a command or search notes..."
+            className="w-full bg-transparent text-sm outline-none placeholder-neutral-400"
+            autoFocus
+          />
+          <span className="text-xs bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded text-neutral-400">ESC</span>
+        </div>
+
+        <div className="max-h-72 overflow-y-auto p-2 space-y-1">
+          {items.length === 0 ? (
+            <div className="p-4 text-center text-xs text-neutral-400">No matching commands or notes</div>
+          ) : (
+            items.map((item, idx) => (
+              <div
+                key={item.id}
+                onClick={() => { item.action(); onClose(); }}
+                className={`flex items-center justify-between p-2.5 px-3 rounded-2xl text-xs cursor-pointer transition ${
+                  selectedIndex === idx ? 'bg-orange-600 text-white font-semibold' : 'hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-200'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <span>{item.icon}</span>
+                  <span className="truncate">{item.name}</span>
+                </div>
+                {selectedIndex === idx && <span className="text-xs opacity-75">Press Enter</span>}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditLabelsModal({ isOpen, onClose, labels, onAddLabel, onRenameLabel, onDeleteLabel }) {
+  const [newLabelText, setNewLabelText] = useState('');
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingText, setEditingText] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleAdd = () => {
+    const trimmed = newLabelText.trim();
+    if (trimmed && !labels.includes(trimmed)) {
+      onAddLabel(trimmed);
+      setNewLabelText('');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+      <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-5 shadow-2xl space-y-4 text-neutral-900 dark:text-neutral-100">
+        <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-neutral-800">
+          <div className="flex items-center gap-2">
+            <Icons.Tag className="w-4 h-4 text-orange-600" />
+            <h3 className="font-bold text-sm">Edit Labels</h3>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+            <Icons.Close className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Create new label..."
+            value={newLabelText}
+            onChange={(e) => setNewLabelText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
+            className="flex-1 px-3 py-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-transparent focus:border-orange-500 text-xs outline-none"
+          />
+          <button
+            onClick={handleAdd}
+            className="px-3.5 py-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs transition"
+          >
+            Add
+          </button>
+        </div>
+
+        <div className="max-h-60 overflow-y-auto space-y-2 py-1 pr-1">
+          {labels.length === 0 ? (
+            <p className="text-xs text-neutral-400 text-center py-4 italic">No labels created yet</p>
+          ) : (
+            labels.map((lbl, idx) => (
+              <div key={idx} className="flex items-center justify-between gap-2 p-2 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/60 group transition">
+                {editingIndex === idx ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <input
+                      type="text"
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          if (editingText.trim()) onRenameLabel(lbl, editingText.trim());
+                          setEditingIndex(null);
+                        }
+                      }}
+                      className="flex-1 px-2.5 py-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-xs outline-none border border-orange-500"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => {
+                        if (editingText.trim()) onRenameLabel(lbl, editingText.trim());
+                        setEditingIndex(null);
+                      }}
+                      className="text-xs text-emerald-500 hover:underline font-semibold"
+                    >
+                      Save
+                    </button>
+                    <button onClick={() => setEditingIndex(null)} className="text-xs text-neutral-400 hover:underline">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2.5 truncate">
+                      <Icons.Tag className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+                      <span className="text-sm font-medium truncate">{lbl}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 opacity-75 group-hover:opacity-100">
+                      <button
+                        onClick={() => { setEditingIndex(idx); setEditingText(lbl); }}
+                        className="p-1 hover:text-orange-500 text-neutral-400 transition"
+                        title="Rename"
+                      >
+                        <Icons.Brush className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => onDeleteLabel(lbl)}
+                        className="p-1 hover:text-red-500 text-neutral-400 transition"
+                        title="Delete"
+                      >
+                        <Icons.Trash className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="flex justify-end pt-2 border-t border-neutral-100 dark:border-neutral-800">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-xs font-semibold"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsModal({
+  isOpen,
+  onClose,
+  notes,
+  accentColor,
+  onSelectAccent,
+  showOnThisDay,
+  onToggleOnThisDay
+}) {
+  const [activeTab, setActiveTab] = useState('general');
+  if (!isOpen) return null;
+
+  const totalNotes = notes.length;
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const createdThisWeek = notes.filter(n => (n.createdAt || 0) > weekAgo).length;
+  const typeCounts = {
+    text: notes.filter(n => n.type === 'text').length,
+    checklist: notes.filter(n => n.type === 'checklist').length,
+    voice: notes.filter(n => n.type === 'voice').length
+  };
+
+  const labelFreq = {};
+  notes.forEach(n => {
+    (n.tags || []).forEach(t => labelFreq[t] = (labelFreq[t] || 0) + 1);
+  });
+  const mostUsedLabel = Object.entries(labelFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || 'None';
+
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const past7Days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    const dayStr = d.toDateString();
+    const count = notes.filter(n => new Date(n.createdAt || 0).toDateString() === dayStr).length;
+    return { label: days[d.getDay()], count };
+  });
+  const maxDayCount = Math.max(1, ...past7Days.map(p => p.count));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+      <div className="w-full max-w-md max-h-[90vh] flex flex-col rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl text-neutral-900 dark:text-neutral-100 overflow-hidden">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-neutral-100 dark:border-neutral-800">
+          <div className="flex items-center gap-2">
+            <Icons.Settings className="w-5 h-5 text-orange-600" />
+            <h3 className="font-bold text-base">Settings</h3>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200">✕</button>
+        </div>
+
+        <div className="p-4 sm:p-5 pb-0">
+          <div className="flex rounded-xl bg-neutral-100 dark:bg-neutral-800 p-1 text-xs font-semibold">
+            <button
+              onClick={() => setActiveTab('general')}
+              className={`flex-1 py-1.5 rounded-lg transition ${activeTab === 'general' ? 'bg-white dark:bg-neutral-700 shadow-sm text-orange-600 dark:text-orange-400' : 'text-neutral-500'}`}
+            >
+              General
+            </button>
+            <button
+              onClick={() => setActiveTab('stats')}
+              className={`flex-1 py-1.5 rounded-lg transition ${activeTab === 'stats' ? 'bg-white dark:bg-neutral-700 shadow-sm text-orange-600 dark:text-orange-400' : 'text-neutral-500'}`}
+            >
+              Statistics
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 sm:p-5 flex-1 overflow-y-auto">
+          {activeTab === 'general' ? (
+            <div className="space-y-4">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-neutral-400 block mb-2">Accent Color</span>
+                <div className="flex items-center gap-2.5 flex-wrap py-1">
+                  {ACCENT_COLORS.map(acc => (
+                    <button
+                      key={acc.id}
+                      onClick={() => onSelectAccent(acc)}
+                      style={{ backgroundColor: acc.color }}
+                      className={`w-8 h-8 rounded-full transition hover:scale-110 flex items-center justify-center flex-shrink-0 ${accentColor.id === acc.id ? 'ring-2 ring-offset-2 ring-orange-500 scale-110 shadow-sm' : ''}`}
+                      title={acc.name}
+                    >
+                      {accentColor.id === acc.id && <Icons.Check className="w-4 h-4 text-white" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-100 dark:border-neutral-800">
+                <div>
+                  <span className="text-xs font-bold block">"On This Day" Memories</span>
+                  <span className="text-xs text-neutral-400">Show cards from 1 week, 1 month, or 1 year ago</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={showOnThisDay}
+                  onChange={(e) => onToggleOnThisDay(e.target.checked)}
+                  className="w-4 h-4 accent-orange-600 rounded cursor-pointer"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-center">
+                  <span className="text-2xl font-bold text-orange-600 block">{totalNotes}</span>
+                  <span className="text-xs text-neutral-400">Total Notes</span>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-center">
+                  <span className="text-2xl font-bold text-orange-600 block">{createdThisWeek}</span>
+                  <span className="text-xs text-neutral-400">Created This Week</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-xs space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-neutral-400">Most Used Label:</span>
+                  <span className="font-semibold">#{mostUsedLabel}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-400">Types:</span>
+                  <span>{typeCounts.text} text, {typeCounts.checklist} list, {typeCounts.voice} voice</span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800">
+                <span className="text-xs font-bold uppercase tracking-wider text-neutral-400 block mb-3">7-Day Activity</span>
+                <div className="flex items-end justify-between h-24 pt-2 px-1">
+                  {past7Days.map((d, i) => {
+                    const hPercent = Math.round((d.count / maxDayCount) * 100);
+                    return (
+                      <div key={i} className="flex flex-col items-center gap-1.5 flex-1">
+                        <span className="text-[10px] font-mono text-neutral-400">{d.count}</span>
+                        <div className="w-5 bg-neutral-200 dark:bg-neutral-700 rounded-t-lg relative overflow-hidden flex items-end h-14">
+                          <div
+                            style={{ height: `${Math.max(10, hPercent)}%` }}
+                            className="w-full bg-orange-600 rounded-t-lg transition-all"
+                          />
+                        </div>
+                        <span className="text-xs font-semibold text-neutral-500">{d.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function YourDataModal({ isOpen, onClose, notes, onExportNotes, onImportNotes }) {
+  const fileRef = useRef(null);
+  if (!isOpen) return null;
+
+  const totalNotes = notes.length;
+  const voiceCount = notes.filter(n => n.type === 'voice').length;
+  const checklistCount = notes.filter(n => n.type === 'checklist').length;
+  const pinnedCount = notes.filter(n => n.isPinned).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+      <div className="w-full max-w-md max-h-[90vh] flex flex-col rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl text-neutral-900 dark:text-neutral-100 overflow-hidden">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-neutral-100 dark:border-neutral-800">
+          <div className="flex items-center gap-2">
+            <Icons.Database className="w-5 h-5 text-orange-600" />
+            <h3 className="font-bold text-base">Your Data & Storage</h3>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200">✕</button>
+        </div>
+
+        <div className="p-4 sm:p-5 space-y-4 flex-1 overflow-y-auto">
+          <div className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-100 dark:border-neutral-800 text-xs space-y-1.5 leading-relaxed text-neutral-600 dark:text-neutral-300">
+            <div className="flex items-center gap-2 font-bold text-neutral-900 dark:text-neutral-100">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span>100% Local & Private</span>
+            </div>
+            <p>All your notes, drawings, and voice memos are stored safely in your device's local database. No cloud tracking.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-center">
+              <span className="text-xl font-bold text-orange-600 block">{totalNotes}</span>
+              <span className="text-xs text-neutral-400">Total Notes</span>
+            </div>
+            <div className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-center">
+              <span className="text-xl font-bold text-orange-600 block">{voiceCount}</span>
+              <span className="text-xs text-neutral-400">Voice Memos</span>
+            </div>
+            <div className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-center">
+              <span className="text-xl font-bold text-orange-600 block">{checklistCount}</span>
+              <span className="text-xs text-neutral-400">Checklists</span>
+            </div>
+            <div className="p-3 rounded-2xl bg-neutral-50 dark:bg-neutral-800/80 border border-neutral-100 dark:border-neutral-800 text-center">
+              <span className="text-xl font-bold text-orange-600 block">{pinnedCount}</span>
+              <span className="text-xs text-neutral-400">Pinned</span>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-orange-600/10 border border-orange-600/20 space-y-3">
+            <span className="text-xs font-bold uppercase tracking-wider text-orange-700 dark:text-orange-400 block">
+              Backup & Restore (JSON)
+            </span>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+              Export all notes and voice recordings into a portable backup file, or restore one anytime.
+            </p>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={onExportNotes}
+                className="py-2.5 px-3 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs shadow-md transition active:scale-95"
+              >
+                Export Backup
+              </button>
+              <input type="file" ref={fileRef} accept=".json" onChange={onImportNotes} className="hidden" />
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 font-semibold text-xs shadow-md transition active:scale-95"
+              >
+                Import Backup
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AboutModal({ isOpen, onClose, updateBannerInfo, onCheckUpdates, onTriggerDownload }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-popIn">
+      <div className="w-full max-w-md max-h-[90vh] flex flex-col rounded-3xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-2xl text-neutral-900 dark:text-neutral-100 overflow-hidden">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-neutral-100 dark:border-neutral-800">
+          <div className="flex items-center gap-2">
+            <Icons.Info className="w-5 h-5 text-orange-600" />
+            <h3 className="font-bold text-base">About Kheyal</h3>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-full text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200">✕</button>
+        </div>
+
+        <div className="p-5 space-y-5 flex-1 overflow-y-auto">
+          <div className="text-center space-y-2 pb-1">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-orange-600 via-amber-500 to-orange-400 text-white flex items-center justify-center mx-auto shadow-xl shadow-orange-500/25">
+              <Icons.NotesLogo className="w-7 h-7" />
+            </div>
+            <h2 className="text-xl font-bold tracking-tight">Kheyal</h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 max-w-xs mx-auto">
+              A modern, distraction-free space for notes, checklists, drawings, and voice memos.
+            </p>
+            <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-mono bg-neutral-100 dark:bg-neutral-800 text-neutral-500">
+              Version {APP_VERSION}
+            </span>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-100 dark:border-neutral-800 space-y-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 block">Developer Information</span>
+            <div className="space-y-1 text-xs">
+              <div className="font-bold text-sm text-neutral-900 dark:text-white">Md. Mahfuz Alam Joy</div>
+              <div className="text-neutral-500 dark:text-neutral-400">Studying B.Sc. in Textile Engineering</div>
+              <div className="pt-1">
+                <span className="text-neutral-400">Email: </span>
+                <a href="mailto:mahfuzalamjoy56@gmail.com" className="text-orange-600 hover:underline font-medium">
+                  mahfuzalamjoy56@gmail.com
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2 pt-1 border-t border-neutral-100 dark:border-neutral-800 text-xs">
+            <div className="flex justify-between items-center text-neutral-400 pt-1">
+              <span>Updates</span>
+              <button
+                onClick={onCheckUpdates}
+                className="text-orange-600 hover:underline font-semibold text-xs"
+              >
+                Check for updates
+              </button>
+            </div>
+            {updateBannerInfo && (
+              <div className="pt-2">
+                <button
+                  onClick={onTriggerDownload}
+                  className="w-full py-2.5 rounded-xl bg-orange-600 text-white font-semibold text-xs shadow-md text-center block"
+                >
+                  Download Latest APK (v{updateBannerInfo.version})
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NoteActionMenu({
+  note,
+  isTrashView,
+  onArchive,
+  onTrash,
+  onRestore,
+  onDeletePermanent,
+  onDuplicate,
+  onShare,
+  onToggleChecklist,
+  onAddDrawing,
+  labels,
+  onToggleNoteLabel,
+  onSetMood
+}) {
+  const [open, setOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(true);
+  const [showLabelPicker, setShowLabelPicker] = useState(false);
+  const [showMoodPicker, setShowMoodPicker] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setOpen(false);
+        setShowLabelPicker(false);
+        setShowMoodPicker(false);
+        setShowVersionHistory(false);
+      }
+    }
+    if (open) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  const handleToggle = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!open && ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      setOpenUpward(rect.top >= 330);
+    }
+    setOpen(!open);
+  };
+
+  return (
+    <div className="relative" ref={ref} onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="p-1.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 transition"
+        title="More Options"
+      >
+        <Icons.MoreVertical className="w-4 h-4" />
+      </button>
+
+      {open && (
+        <div
+          className={`absolute right-0 z-50 w-56 max-h-[75vh] overflow-y-auto py-2 rounded-2xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 shadow-2xl animate-popIn text-xs ${
+            openUpward ? 'bottom-full mb-2' : 'top-full mt-2'
+          }`}
+        >
+          {!isTrashView ? (
+            <>
+              <button
+                onClick={() => { onTrash(); setOpen(false); }}
+                className="w-full text-left px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5 text-red-600 dark:text-red-400 font-medium"
+              >
+                <Icons.Trash className="w-4 h-4" />
+                <span>Delete note</span>
+              </button>
+
+              <button
+                onClick={() => { setShowLabelPicker(!showLabelPicker); setShowMoodPicker(false); setShowVersionHistory(false); }}
+                className="w-full text-left px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Icons.Tag className="w-4 h-4 text-neutral-400" />
+                  <span>Add label</span>
+                </div>
+                <span>▸</span>
+              </button>
+
+              {showLabelPicker && (
+                <div className="px-3.5 py-2 bg-neutral-50 dark:bg-neutral-900/60 space-y-1.5 border-y border-neutral-100 dark:border-neutral-700">
+                  {labels.length === 0 && <span className="text-xs text-neutral-400 italic">No labels created</span>}
+                  {labels.map((lbl) => {
+                    const has = (note.tags || []).includes(lbl);
+                    return (
+                      <label key={lbl} className="flex items-center gap-2 cursor-pointer text-xs">
+                        <input
+                          type="checkbox"
+                          checked={has}
+                          onChange={() => onToggleNoteLabel(lbl)}
+                          className="accent-orange-600 rounded"
+                        />
+                        <span className="truncate">{lbl}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              <button
+                onClick={() => { setShowMoodPicker(!showMoodPicker); setShowLabelPicker(false); setShowVersionHistory(false); }}
+                className="w-full text-left px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span>🏷️</span>
+                  <span>Mood / Reaction</span>
+                </div>
+                <span>▸</span>
+              </button>
+
+              {showMoodPicker && (
+                <div className="flex items-center justify-around p-2 bg-neutral-50 dark:bg-neutral-900/60 border-y border-neutral-100 dark:border-neutral-700">
+                  {EMOJI_MOODS.map(m => (
+                    <button
+                      key={m}
+                      onClick={() => { onSetMood(note.mood === m ? null : m); setOpen(false); }}
+                      className={`text-base p-1 hover:scale-125 transition ${note.mood === m ? 'scale-125 ring-1 ring-orange-500 rounded-full' : ''}`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {onAddDrawing && (
+                <button
+                  onClick={() => { onAddDrawing(); setOpen(false); }}
+                  className="w-full text-left px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5"
+                >
+                  <Icons.Brush className="w-4 h-4 text-neutral-400" />
+                  <span>Add drawing</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => { onDuplicate(); setOpen(false); }}
+                className="w-full text-left px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5"
+              >
+                <Icons.Checklist className="w-4 h-4 text-neutral-400" />
+                <span>Make a copy</span>
+              </button>
+
+              {note.type !== 'voice' && (
+                <button
+                  onClick={() => { onToggleChecklist(); setOpen(false); }}
+                  className="w-full text-left px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5"
+                >
+                  <Icons.Checklist className="w-4 h-4 text-neutral-400" />
+                  <span>{note.type === 'checklist' ? 'Convert to text' : 'Show checkboxes'}</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => { onShare(); setOpen(false); }}
+                className="w-full text-left px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center gap-2.5"
+              >
+                <Icons.Share className="w-4 h-4 text-neutral-400" />
+                <span>Share / Copy</span>
+              </button>
+
+              <button
+                onClick={() => { setShowVersionHistory(!showVersionHistory); setShowLabelPicker(false); setShowMoodPicker(false); }}
+                className="w-full text-left px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Icons.Command className="w-4 h-4 text-neutral-400" />
+                  <span>Version info</span>
+                </div>
+                <span>▸</span>
+              </button>
+
+              {showVersionHistory && (
+                <div className="p-2.5 bg-neutral-50 dark:bg-neutral-900/70 border-y border-neutral-100 dark:border-neutral-700 text-xs space-y-1 text-neutral-500">
+                  <div><strong className="text-neutral-700 dark:text-neutral-300">Created:</strong> {new Date(note.createdAt || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                  <div><strong className="text-neutral-700 dark:text-neutral-300">Updated:</strong> {new Date(note.updatedAt || note.createdAt || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <button onClick={() => { onRestore(); setOpen(false); }} className="w-full text-left px-4 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-700/60">
+                Restore note
+              </button>
+              <button onClick={() => { onDeletePermanent(); setOpen(false); }} className="w-full text-left px-4 py-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40">
+                Delete forever
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NoteCard({
+  note,
+  isDark,
+  viewMode,
+  isSelected,
+  isSelectMode,
+  onToggleSelect,
+  onOpenDetail,
+  onPin,
+  onArchive,
+  onTrash,
+  onRestore,
+  onDeletePermanent,
+  onChangeColor,
+  onDuplicate,
+  onShare,
+  onToggleChecklist,
+  onSetReminder,
+  onOpenLightbox,
+  onOpenDrawingModal,
+  labels,
+  onToggleNoteLabel,
+  onSetMood,
+  onUpdateNote,
+  isTrashView
+}) {
+  const cardColorClass = getColorClass(note.color, isDark);
+  const isVoice = note.type === 'voice';
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(note.duration || 0);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const audioRef = useRef(null);
+  const [audioUrl, setAudioUrl] = useState(null);
+
+  const [touchStartX, setTouchStartX] = useState(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+
+  useEffect(() => {
+    if (note.audioBlob) {
+      const url = URL.createObjectURL(note.audioBlob);
+      setAudioUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setAudioUrl(null);
+  }, [note.audioBlob]);
+
+  const togglePlayPause = (e) => {
+    e.stopPropagation();
+    if (!audioRef.current) return;
+    if (isPlaying) audioRef.current.pause();
+    else audioRef.current.play().catch(() => {});
+  };
+
+  const cycleSpeed = (e) => {
+    e.stopPropagation();
+    const speeds = [1, 1.5, 2, 0.5];
+    const next = speeds[(speeds.indexOf(playbackRate) + 1) % speeds.length];
+    setPlaybackRate(next);
+    if (audioRef.current) audioRef.current.playbackRate = next;
+  };
+
+  const handleTouchStart = (e) => {
+    setTouchStartX(e.touches[0].clientX);
+  };
+
+  const handleTouchMove = (e) => {
+    if (touchStartX === null) return;
+    const currentX = e.touches[0].clientX;
+    const diff = currentX - touchStartX;
+    if (Math.abs(diff) < 120) setSwipeOffset(diff);
+  };
+
+  const handleTouchEnd = () => {
+    if (swipeOffset > 75 && !isTrashView) {
+      onArchive();
+    } else if (swipeOffset < -75 && !isTrashView) {
+      onTrash();
+    }
+    setTouchStartX(null);
+    setSwipeOffset(0);
+  };
+
+  const items = note.checklist || [];
+  const unchecked = items.filter(i => !i.checked);
+
+  return (
+    <div
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      style={{ transform: `translateX(${swipeOffset}px)` }}
+      onClick={(e) => {
+        if (isSelectMode) onToggleSelect();
+        else if (!isTrashView) onOpenDetail(note);
+      }}
+      className={`break-inside-avoid group relative rounded-3xl border p-4 sm:p-5 transition-all duration-200 cursor-pointer hover:shadow-lg ${cardColorClass} ${
+        viewMode === 'list' ? 'flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 w-full' : ''
+      } ${isSelected ? 'ring-2 ring-orange-500 scale-[0.99]' : ''}`}
+    >
+      {swipeOffset > 25 && (
+        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-orange-600 font-bold text-xs flex items-center gap-1">
+          <Icons.Archive className="w-4 h-4" /> Archive
+        </div>
+      )}
+      {swipeOffset < -25 && (
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 font-bold text-xs flex items-center gap-1">
+          Delete <Icons.Trash className="w-4 h-4" />
+        </div>
+      )}
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {isSelectMode && (
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
+                className="w-4 h-4 rounded text-orange-600 accent-orange-600 cursor-pointer"
+              />
+            )}
+            {note.mood && <span className="text-base">{note.mood}</span>}
+            {isVoice ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-600/15 text-orange-700 dark:text-orange-400">
+                <Icons.Mic className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400" />
+                <span>Voice Memo</span>
+                <span className="opacity-60 font-mono text-[11px]">({formatTime(audioDuration)})</span>
+              </span>
+            ) : note.type === 'checklist' ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-black/5 dark:bg-white/10 opacity-75">
+                <Icons.Checklist className="w-3.5 h-3.5" />
+                <span>Checklist</span>
+              </span>
+            ) : null}
+          </div>
+
+          {!isTrashView && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onPin(); }}
+              className={`p-1.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition flex-shrink-0 ${
+                note.isPinned ? 'text-orange-600 opacity-100' : 'text-neutral-400 opacity-0 group-hover:opacity-100'
+              }`}
+              title={note.isPinned ? 'Unpin' : 'Pin note'}
+            >
+              <Icons.Pin className="w-4 h-4" filled={note.isPinned} />
+            </button>
+          )}
+        </div>
+
+        {note.images && note.images.length > 0 && (
+          <div className="mb-2.5 rounded-2xl overflow-hidden flex flex-wrap gap-1.5">
+            {note.images.slice(0, 2).map((img, idx) => (
+              <img
+                key={idx}
+                src={img}
+                alt="Attachment"
+                onClick={(e) => { e.stopPropagation(); onOpenLightbox(img); }}
+                className="h-28 w-full object-cover rounded-xl cursor-pointer hover:opacity-95"
+              />
+            ))}
+          </div>
+        )}
+
+        {note.title && (
+          <h3 className="font-bold text-base mb-1 tracking-tight leading-snug break-words line-clamp-2">
+            {note.title}
+          </h3>
+        )}
+
+        {note.type === 'text' && note.content && (
+          <p className="text-sm whitespace-pre-wrap leading-relaxed opacity-90 break-words line-clamp-4 mb-2">
+            {note.content}
+          </p>
+        )}
+
+        {note.type === 'checklist' && (
+          <div className="space-y-1 my-1.5 text-sm">
+            {unchecked.slice(0, 3).map((item) => (
+              <div key={item.id} className="flex items-center gap-2">
+                <span className="w-3.5 h-3.5 rounded border border-neutral-400 flex-shrink-0" />
+                <span className="truncate">{item.text}</span>
+              </div>
+            ))}
+            {items.length > 3 && (
+              <div className="pt-0.5 text-xs text-orange-600 dark:text-orange-400 font-semibold">
+                +{items.length - 3} more items...
+              </div>
+            )}
+          </div>
+        )}
+
+        {isVoice && audioUrl && (
+          <div onClick={(e) => e.stopPropagation()} className="my-2 p-2 rounded-2xl bg-black/5 dark:bg-white/5 flex items-center gap-3">
+            <audio
+              ref={audioRef}
+              src={audioUrl}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onTimeUpdate={() => audioRef.current && setCurrentTime(audioRef.current.currentTime)}
+              onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
+            />
+            <button
+              onClick={togglePlayPause}
+              className="w-7 h-7 rounded-full bg-orange-600 text-white flex items-center justify-center shadow flex-shrink-0"
+            >
+              {isPlaying ? <Icons.Pause className="w-3.5 h-3.5" /> : <Icons.Play className="w-3.5 h-3.5 ml-0.5" />}
+            </button>
+            <div className="flex-1">
+              <div className="h-1.5 w-full bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
+                <div
+                  style={{ width: `${(currentTime / (audioDuration || 1)) * 100}%` }}
+                  className="h-full bg-orange-600"
+                />
+              </div>
+              <div className="flex justify-between text-[10px] opacity-60 font-mono mt-1">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(audioDuration)}</span>
+              </div>
+            </div>
+            <button onClick={cycleSpeed} className="px-1.5 py-0.5 rounded-lg bg-black/5 dark:bg-white/10 text-xs font-bold">
+              {playbackRate}x
+            </button>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-1 mt-2">
+          {note.reminder && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-orange-600/15 text-orange-700 dark:text-orange-400 font-medium">
+              <Icons.Bell className="w-3 h-3" />
+              {formatReminderDate(note.reminder)}
+            </span>
+          )}
+          {note.tags && note.tags.map((t) => (
+            <span key={t} className="inline-flex items-center text-xs px-2.5 py-0.5 rounded-md bg-black/5 dark:bg-white/10 opacity-75">
+              #{t}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="mt-3 pt-2.5 border-t border-black/5 dark:border-white/10 flex items-center justify-between opacity-90 sm:opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        {!isTrashView ? (
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-1">
+              <ColorPickerPopover currentColor={note.color} onSelectColor={(c) => onChangeColor(c)} />
+              <ReminderPopover reminder={note.reminder} onSetReminder={(r) => onSetReminder(r)} />
+              <button onClick={onArchive} className="p-1.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500" title="Archive">
+                <Icons.Archive className="w-4 h-4" />
+              </button>
+            </div>
+            <NoteActionMenu
+              note={note}
+              isTrashView={isTrashView}
+              onArchive={onArchive}
+              onTrash={onTrash}
+              onRestore={onRestore}
+              onDeletePermanent={onDeletePermanent}
+              onDuplicate={onDuplicate}
+              onShare={onShare}
+              onToggleChecklist={onToggleChecklist}
+              onAddDrawing={() => onOpenDrawingModal((img) => onUpdateNote({ ...note, images: [...(note.images || []), img] }))}
+              labels={labels}
+              onToggleNoteLabel={onToggleNoteLabel}
+              onSetMood={(m) => onSetMood(m)}
+            />
+          </div>
+        ) : (
+          <div className="flex items-center justify-between w-full">
+            <button onClick={onRestore} className="text-xs font-semibold px-3 py-1 rounded-xl bg-black/5 hover:bg-black/10">
+              Restore
+            </button>
+            <button onClick={onDeletePermanent} className="text-xs font-semibold px-3 py-1 text-red-600 hover:bg-red-50">
+              Delete forever
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SpeedDialFAB({ onNewNote, onNewChecklist, onNewVoice, onNewDraw, onOpenTemplate }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [open]);
+
+  return (
+    <div ref={menuRef} className="fixed bottom-6 right-5 z-40 flex flex-col items-end gap-3" style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}>
+      {open && (
+        <div className="flex flex-col items-end gap-2.5 mb-1 animate-popIn">
+          <button
+            onClick={() => { setOpen(false); onOpenTemplate(); }}
+            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 shadow-xl border border-neutral-200 dark:border-neutral-700 text-xs font-semibold transition hover:scale-105 active:scale-95"
+          >
+            <span>Templates</span>
+            <span className="w-8 h-8 rounded-xl bg-orange-600/15 text-orange-600 dark:text-orange-400 flex items-center justify-center">
+              <Icons.Template className="w-4 h-4" />
+            </span>
+          </button>
+
+          <button
+            onClick={() => { setOpen(false); onNewDraw(); }}
+            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 shadow-xl border border-neutral-200 dark:border-neutral-700 text-xs font-semibold transition hover:scale-105 active:scale-95"
+          >
+            <span>Draw / Sketch</span>
+            <span className="w-8 h-8 rounded-xl bg-orange-600/15 text-orange-600 dark:text-orange-400 flex items-center justify-center">
+              <Icons.Brush className="w-4 h-4" />
+            </span>
+          </button>
+
+          <button
+            onClick={() => { setOpen(false); onNewChecklist(); }}
+            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 shadow-xl border border-neutral-200 dark:border-neutral-700 text-xs font-semibold transition hover:scale-105 active:scale-95"
+          >
+            <span>New Checklist</span>
+            <span className="w-8 h-8 rounded-xl bg-orange-600/15 text-orange-600 dark:text-orange-400 flex items-center justify-center">
+              <Icons.Checklist className="w-4 h-4" />
+            </span>
+          </button>
+
+          <button
+            onClick={() => { setOpen(false); onNewVoice(); }}
+            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 shadow-xl border border-neutral-200 dark:border-neutral-700 text-xs font-semibold transition hover:scale-105 active:scale-95"
+          >
+            <span>Record Voice</span>
+            <span className="w-8 h-8 rounded-xl bg-red-500/15 text-red-500 flex items-center justify-center">
+              <Icons.Mic className="w-4 h-4" />
+            </span>
+          </button>
+
+          <button
+            onClick={() => { setOpen(false); onNewNote(); }}
+            className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 shadow-xl border border-neutral-200 dark:border-neutral-700 text-xs font-semibold transition hover:scale-105 active:scale-95"
+          >
+            <span>Plain Note</span>
+            <span className="w-8 h-8 rounded-xl bg-orange-600 text-white flex items-center justify-center">
+              📝
+            </span>
+          </button>
+        </div>
+      )}
+
+      <button
+        onClick={() => setOpen(!open)}
+        className={`w-14 h-14 rounded-full bg-gradient-to-tr from-orange-600 via-amber-500 to-amber-400 text-white flex items-center justify-center shadow-2xl shadow-orange-500/40 hover:scale-105 active:scale-95 transition-transform duration-200 ${
+          open ? 'rotate-45' : ''
+        }`}
+        title="Create Note / Voice / Drawing"
+      >
+        <Icons.Plus className="w-7 h-7" />
+      </button>
+    </div>
+  );
+}
+
+function App() {
+  const [notes, setNotes] = useState([]);
+  const [currentView, setCurrentView] = useState('notes');
+  const [selectedLabel, setSelectedLabel] = useState(null);
+  const [labels, setLabels] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LABELS_KEY);
+      return raw ? JSON.parse(raw) : ['Work', 'Personal', 'Ideas'];
+    } catch (e) {
+      return ['Work', 'Personal'];
+    }
+  });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
+  const [accentColor, setAccentColor] = useState(ACCENT_COLORS[0]);
+
+  const [viewMode, setViewMode] = useState('grid');
+  const [sortBy, setSortBy] = useState('updated');
+
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedNoteIds, setSelectedNoteIds] = useState([]);
+
+  const [activeEditingNote, setActiveEditingNote] = useState(null);
+  const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] = useState(false);
+  const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false);
+  const [drawingCallback, setDrawingCallback] = useState(null);
+  const [isEditLabelsOpen, setIsEditLabelsOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDataModalOpen, setIsDataModalOpen] = useState(false);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState(null);
+
+  const [undoState, setUndoState] = useState(null);
+  const undoTimerRef = useRef(null);
+
+  const [showOnThisDay, setShowOnThisDay] = useState(() => {
+    return localStorage.getItem(ON_THIS_DAY_KEY) !== 'false';
+  });
+  const [dismissedMemory, setDismissedMemory] = useState(false);
+
+  const [updateBannerInfo, setUpdateBannerInfo] = useState(null);
+  const [toastMsg, setToastMsg] = useState(null);
+
+  useEffect(() => {
+    const handler = CapacitorApp.addListener('backButton', () => {
+      if (activeEditingNote) { setActiveEditingNote(null); return; }
+      if (isSettingsOpen) { setIsSettingsOpen(false); return; }
+      if (isDataModalOpen) { setIsDataModalOpen(false); return; }
+      if (isAboutModalOpen) { setIsAboutModalOpen(false); return; }
+      if (isEditLabelsOpen) { setIsEditLabelsOpen(false); return; }
+      if (isCommandPaletteOpen) { setIsCommandPaletteOpen(false); return; }
+      if (isVoiceRecorderOpen) { setIsVoiceRecorderOpen(false); return; }
+      if (isDrawingModalOpen) { setIsDrawingModalOpen(false); return; }
+      if (lightboxImage) { setLightboxImage(null); return; }
+      CapacitorApp.minimizeApp();
+    });
+    return () => { handler.then(h => h.remove()); };
+  }, [activeEditingNote, isSettingsOpen, isDataModalOpen, isAboutModalOpen, isEditLabelsOpen, isCommandPaletteOpen, isVoiceRecorderOpen, isDrawingModalOpen, lightboxImage]);
+
+  const showToast = (msg) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  const handleTriggerDownload = () => {
+    window.open(DIRECT_APK_URL, '_system');
+  };
+
+  const checkForUpdates = async (alertIfUpToDate = false) => {
+    try {
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+        headers: { 'Accept': 'application/vnd.github.v3+json' },
+        cache: 'no-store'
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const latestTag = (data.tag_name || '').replace(/^v/, '').trim();
+        const dismissed = localStorage.getItem('notes_dismissed_version');
+        const isNewer = latestTag && compareVersions(latestTag, APP_VERSION) > 0;
+
+        if (isNewer && dismissed !== latestTag) {
+          setUpdateBannerInfo({ version: latestTag, url: data.html_url });
+          if (alertIfUpToDate) showToast(`Update v${latestTag} available! Click download above.`);
+        } else {
+          setUpdateBannerInfo(null);
+          if (alertIfUpToDate) {
+            showToast('App is already on the latest version!');
+          }
+        }
+      } else if (alertIfUpToDate) {
+        showToast('Could not check for updates right now.');
+      }
+    } catch (e) {
+      if (alertIfUpToDate) {
+        showToast('Network error. Check internet connection.');
+      }
+    }
+  };
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('notes_theme');
+    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      setIsDarkMode(true);
+    }
+    dbGetAllNotes().then(stored => setNotes(stored));
+    checkForUpdates(false);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('notes_theme', isDarkMode ? 'dark' : 'light');
+    if (isDarkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+  }, [isDarkMode]);
+
+  const applyAccent = (acc) => {
+    setAccentColor(acc);
+    document.documentElement.style.setProperty('--accent-color', acc.color);
+    document.documentElement.style.setProperty('--accent-hover', acc.hover);
+    document.documentElement.style.setProperty('--accent-light', acc.light);
+    document.documentElement.style.setProperty('--accent-ring', acc.ring);
+  };
+
+  const saveLabels = (next) => {
+    setLabels(next);
+    localStorage.setItem(LABELS_KEY, JSON.stringify(next));
+  };
+
+  const toggleOnThisDayPref = (val) => {
+    setShowOnThisDay(val);
+    localStorage.setItem(ON_THIS_DAY_KEY, String(val));
+  };
+
+  const handleSaveNote = async (noteData) => {
+    const noteToSave = {
+      id: noteData.id || 'note_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
+      type: noteData.type || 'text',
+      title: noteData.title || '',
+      content: noteData.content || '',
+      checklist: noteData.checklist || [],
+      images: noteData.images || [],
+      audioBlob: noteData.audioBlob || null,
+      duration: noteData.duration || 0,
+      color: noteData.color || 'default',
+      reminder: noteData.reminder || null,
+      isPinned: Boolean(noteData.isPinned),
+      isArchived: Boolean(noteData.isArchived),
+      isTrash: Boolean(noteData.isTrash),
+      tags: noteData.tags || [],
+      mood: noteData.mood || null,
+      createdAt: noteData.createdAt || Date.now(),
+      updatedAt: Date.now()
+    };
+
+    await dbSaveNote(noteToSave);
+    setNotes((prev) => {
+      const index = prev.findIndex((n) => n.id === noteToSave.id);
+      if (index >= 0) {
+        const updated = [...prev];
+        updated[index] = noteToSave;
+        return updated;
+      }
+      return [noteToSave, ...prev];
+    });
+  };
+
+  const triggerUndoableAction = (message, previousNotes, nextNotes) => {
+    setNotes(nextNotes);
+    nextNotes.forEach(n => dbSaveNote(n));
+
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoState({
+      message,
+      undoAction: () => {
+        setNotes(previousNotes);
+        previousNotes.forEach(n => dbSaveNote(n));
+        setUndoState(null);
+      }
+    });
+
+    undoTimerRef.current = setTimeout(() => {
+      setUndoState(null);
+    }, 5000);
+  };
+
+  const handleArchiveNote = (note) => {
+    const prev = [...notes];
+    const updated = notes.map(n => n.id === note.id ? { ...n, isArchived: !n.isArchived, isPinned: false } : n);
+    triggerUndoableAction(note.isArchived ? 'Note unarchived' : 'Note archived', prev, updated);
+  };
+
+  const handleTrashNote = (note) => {
+    const prev = [...notes];
+    const updated = notes.map(n => n.id === note.id ? { ...n, isTrash: true, isPinned: false } : n);
+    triggerUndoableAction('Note moved to trash', prev, updated);
+  };
+
+  const handleRestoreNote = (note) => {
+    const prev = [...notes];
+    const updated = notes.map(n => n.id === note.id ? { ...n, isTrash: false } : n);
+    triggerUndoableAction('Note restored', prev, updated);
+  };
+
+  const handleBulkArchive = () => {
+    const prev = [...notes];
+    const updated = notes.map(n => selectedNoteIds.includes(n.id) ? { ...n, isArchived: true, isPinned: false } : n);
+    triggerUndoableAction(`${selectedNoteIds.length} notes archived`, prev, updated);
+    setSelectedNoteIds([]);
+    setIsSelectMode(false);
+  };
+
+  const handleBulkTrash = () => {
+    const prev = [...notes];
+    const updated = notes.map(n => selectedNoteIds.includes(n.id) ? { ...n, isTrash: true, isPinned: false } : n);
+    triggerUndoableAction(`${selectedNoteIds.length} notes moved to trash`, prev, updated);
+    setSelectedNoteIds([]);
+    setIsSelectMode(false);
+  };
+
+  const handleBulkColor = (colorId) => {
+    const updated = notes.map(n => selectedNoteIds.includes(n.id) ? { ...n, color: colorId } : n);
+    setNotes(updated);
+    updated.filter(n => selectedNoteIds.includes(n.id)).forEach(n => dbSaveNote(n));
+    setSelectedNoteIds([]);
+    setIsSelectMode(false);
+  };
+
+  const handleCreateNewNote = (type = 'text', customFields = {}) => {
+    const fresh = {
+      id: 'note_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
+      type,
+      title: '',
+      content: '',
+      checklist: type === 'checklist' ? [{ id: 'it_0', text: '', checked: false }] : [],
+      images: [],
+      color: 'default',
+      isPinned: false,
+      isArchived: false,
+      isTrash: false,
+      tags: [],
+      mood: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      ...customFields
+    };
+    setActiveEditingNote(fresh);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(true);
+      } else if (e.key === '/') {
+        e.preventDefault();
+        document.getElementById('global-search-input')?.focus();
+      } else if (e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        handleCreateNewNote('text');
+      } else if (e.key === 'Escape') {
+        setIsCommandPaletteOpen(false);
+        setIsSettingsOpen(false);
+        setIsVoiceRecorderOpen(false);
+        setIsDrawingModalOpen(false);
+        setActiveEditingNote(null);
+        setLightboxImage(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleExportJSON = async () => {
+    const exportable = await Promise.all(
+      notes.map(async (n) => {
+        const copy = { ...n };
+        if (copy.audioBlob) {
+          copy.audioBlobBase64 = await blobToBase64(copy.audioBlob);
+          delete copy.audioBlob;
+        }
+        return copy;
+      })
+    );
+    const jsonStr = JSON.stringify(exportable, null, 2);
+    const filename = `kheyal_backup_${new Date().toISOString().slice(0, 10)}.json`;
+
+    if (navigator.share) {
+      try {
+        const file = new File([jsonStr], filename, { type: 'application/json' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: 'Kheyal Backup' });
+          return;
+        }
+      } catch (err) {}
+    }
+
+    try {
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (a.parentNode) a.parentNode.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+    } catch (err) {
+      showToast('Could not export backup: ' + err.message);
+    }
+  };
+
+  const handleImportJSON = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const imported = JSON.parse(event.target.result);
+        if (Array.isArray(imported)) {
+          for (const item of imported) {
+            if (item.audioBlobBase64) {
+              item.audioBlob = await base64ToBlob(item.audioBlobBase64);
+              delete item.audioBlobBase64;
+            }
+            await dbSaveNote(item);
+          }
+          setNotes(await dbGetAllNotes());
+          setIsSettingsOpen(false);
+          showToast('Backup restored successfully!');
+        } else {
+          showToast('Invalid backup file format.');
+        }
+      } catch (err) {
+        showToast('Could not read backup file.');
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const onThisDayNote = useMemo(() => {
+    if (!showOnThisDay || dismissedMemory) return null;
+    const now = new Date();
+    return notes.find(n => {
+      if (n.isTrash || n.isArchived) return false;
+      const created = new Date(n.createdAt || 0);
+      const diffDays = Math.round((now - created) / (1000 * 60 * 60 * 24));
+      return diffDays === 7 || diffDays === 30 || diffDays === 365;
+    });
+  }, [notes, showOnThisDay, dismissedMemory]);
+
+  const filteredNotes = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    return notes.filter((n) => {
+      if (currentView === 'trash') {
+        if (!n.isTrash) return false;
+      } else {
+        if (n.isTrash) return false;
+        if (currentView === 'archive' && !n.isArchived) return false;
+        if (currentView === 'notes' && n.isArchived) return false;
+        if (currentView === 'reminders' && (!n.reminder || n.isArchived)) return false;
+        if (currentView === 'label' && selectedLabel && !(n.tags || []).includes(selectedLabel)) return false;
+      }
+      if (q) {
+        const titleMatch = (n.title || '').toLowerCase().includes(q);
+        const contentMatch = (n.content || '').toLowerCase().includes(q);
+        const checkMatch = (n.checklist || []).some(i => i.text.toLowerCase().includes(q));
+        if (!titleMatch && !contentMatch && !checkMatch) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      if (sortBy === 'created') return (b.createdAt || 0) - (a.createdAt || 0);
+      if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
+      if (sortBy === 'color') return (a.color || '').localeCompare(b.color || '');
+      return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0);
+    });
+  }, [notes, currentView, selectedLabel, searchQuery, sortBy]);
+
+  const pinnedNotes = useMemo(() => currentView === 'notes' ? filteredNotes.filter(n => n.isPinned) : [], [filteredNotes, currentView]);
+  const otherNotes = useMemo(() => currentView === 'notes' ? filteredNotes.filter(n => !n.isPinned) : filteredNotes, [filteredNotes, currentView]);
+
+  return (
+    <div className="relative pb-24">
+      {updateBannerInfo && (
+        <div className="bg-orange-600 text-white text-xs sm:text-sm px-4 py-2.5 flex items-center justify-between font-medium shadow-md">
+          <span className="truncate mr-2 font-medium">New update available: v{updateBannerInfo.version}</span>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleTriggerDownload}
+              className="px-3 py-1 rounded-xl bg-white text-orange-600 font-bold text-xs hover:bg-neutral-100 transition shadow-sm"
+            >
+              Download APK
+            </button>
+            <button
+              onClick={() => {
+                localStorage.setItem('notes_dismissed_version', updateBannerInfo.version);
+                setUpdateBannerInfo(null);
+              }}
+              className="p-1 rounded hover:bg-black/10 text-white text-xs"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toastMsg && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[99999] bg-neutral-900/95 dark:bg-neutral-800/95 text-white border border-neutral-700/80 px-5 py-2.5 rounded-2xl text-xs font-semibold shadow-2xl backdrop-blur-md animate-popIn">
+          {toastMsg}
+        </div>
+      )}
+
+      <header className="sticky top-0 z-30 flex items-center justify-between px-3.5 sm:px-6 py-2.5 sm:py-3 bg-white/90 dark:bg-[#121316]/90 backdrop-blur-md border-b border-neutral-200/80 dark:border-neutral-800">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition"
+            title="Menu"
+          >
+            <Icons.Menu className="w-5 h-5" />
+          </button>
+          
+          <div
+            className="flex items-center gap-2.5 select-none cursor-pointer"
+            onClick={() => { setCurrentView('notes'); setSelectedLabel(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
+          >
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-orange-600 via-amber-500 to-amber-400 text-white flex items-center justify-center shadow-md shadow-orange-500/25 ring-1 ring-white/20 transition-transform active:scale-95">
+              <Icons.NotesLogo className="w-5 h-5" />
+            </div>
+            <span className="text-lg sm:text-xl font-bold tracking-tight text-neutral-900 dark:text-white">
+              Kheyal
+            </span>
+          </div>
+        </div>
+
+        <div className="flex-1 max-w-xl mx-2 sm:mx-6 min-w-0">
+          <div className="relative flex items-center">
+            <span className="absolute left-3.5 text-neutral-400 pointer-events-none">
+              <Icons.Search className="w-4 h-4 sm:w-5 sm:h-5" />
+            </span>
+            <input
+              id="global-search-input"
+              type="text"
+              placeholder="Search notes..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-3 sm:pr-10 py-2 sm:py-2.5 text-sm bg-neutral-100 dark:bg-neutral-800/90 border border-transparent focus:border-neutral-300 dark:focus:border-neutral-700 rounded-2xl outline-none"
+            />
+            <button
+              onClick={() => setIsCommandPaletteOpen(true)}
+              className="absolute right-3 hidden sm:flex items-center gap-1 text-xs font-mono px-1.5 py-0.5 rounded bg-neutral-200 dark:bg-neutral-700 text-neutral-500"
+              title="Command Palette"
+            >
+              ⌘K
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-600 dark:text-neutral-300 transition text-base"
+            title="Toggle Theme"
+          >
+            {isDarkMode ? '☀️' : '🌙'}
+          </button>
+        </div>
+      </header>
+
+      <div className="flex relative">
+        {sidebarOpen && (
+          <div
+            onClick={() => setSidebarOpen(false)}
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs md:hidden"
+          />
+        )}
+
+        <aside
+          className={`
+            fixed top-0 bottom-0 left-0 z-50 md:z-20 md:sticky md:top-[57px] md:h-[calc(100vh-57px)]
+            bg-neutral-50/90 dark:bg-[#121316] border-r border-neutral-200/90 dark:border-neutral-800/90
+            transition-all duration-300 ease-in-out p-3.5 flex flex-col justify-start overflow-y-auto
+            w-72 max-w-[85vw] shadow-2xl md:shadow-none
+            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:w-20'}
+          `}
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 28px) + 12px)' }}
+        >
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-2 py-1 mb-2 md:hidden border-b border-neutral-200/70 dark:border-neutral-800">
+              <span className="text-xs font-bold uppercase tracking-wider text-neutral-400">Navigation</span>
+              <button onClick={() => setSidebarOpen(false)} className="p-1.5 rounded-xl bg-neutral-200/60 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 active:scale-95 transition">
+                <Icons.Close className="w-4 h-4" />
+              </button>
+            </div>
+
+            <button
+              onClick={() => { setCurrentView('notes'); setSelectedLabel(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
+              className={`group w-full flex items-center justify-between p-2.5 rounded-2xl text-sm font-semibold transition-all duration-150 active:scale-[0.97] ${
+                currentView === 'notes'
+                  ? 'bg-orange-500/15 text-orange-700 dark:bg-orange-500/25 dark:text-orange-300 border-2 border-orange-500/40 shadow-sm'
+                  : 'bg-white dark:bg-[#18191d] text-neutral-700 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-800 hover:border-orange-500/40 hover:bg-orange-50/50 dark:hover:bg-neutral-800 shadow-xs'
+              }`}
+            >
+              <div className="flex items-center gap-3 truncate">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors shadow-xs ${
+                  currentView === 'notes' ? 'bg-orange-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80'
+                }`}>
+                  <Icons.NotesLogo className="w-4 h-4" />
+                </div>
+                <span className={`truncate ${!sidebarOpen ? 'md:hidden' : ''}`}>Notes</span>
+              </div>
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${!sidebarOpen ? 'md:hidden' : ''} ${
+                currentView === 'notes' ? 'text-orange-600 dark:text-orange-400 opacity-100' : 'text-neutral-400 opacity-50 group-hover:translate-x-0.5 group-hover:opacity-100'
+              }`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+
+            <button
+              onClick={() => { setCurrentView('reminders'); setSelectedLabel(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
+              className={`group w-full flex items-center justify-between p-2.5 rounded-2xl text-sm font-semibold transition-all duration-150 active:scale-[0.97] ${
+                currentView === 'reminders'
+                  ? 'bg-orange-500/15 text-orange-700 dark:bg-orange-500/25 dark:text-orange-300 border-2 border-orange-500/40 shadow-sm'
+                  : 'bg-white dark:bg-[#18191d] text-neutral-700 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-800 hover:border-orange-500/40 hover:bg-orange-50/50 dark:hover:bg-neutral-800 shadow-xs'
+              }`}
+            >
+              <div className="flex items-center gap-3 truncate">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors shadow-xs ${
+                  currentView === 'reminders' ? 'bg-orange-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80'
+                }`}>
+                  <Icons.Bell className="w-4 h-4" />
+                </div>
+                <span className={`truncate ${!sidebarOpen ? 'md:hidden' : ''}`}>Reminders</span>
+              </div>
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${!sidebarOpen ? 'md:hidden' : ''} ${
+                currentView === 'reminders' ? 'text-orange-600 dark:text-orange-400 opacity-100' : 'text-neutral-400 opacity-50 group-hover:translate-x-0.5 group-hover:opacity-100'
+              }`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+
+            <div className={`pt-2.5 pb-1 px-1 flex items-center justify-between text-xs font-bold text-neutral-400 uppercase tracking-wider ${!sidebarOpen ? 'md:hidden' : ''}`}>
+              <span>Labels</span>
+              <span className="text-[10px] bg-neutral-200/70 dark:bg-neutral-800 px-2 py-0.5 rounded-full text-neutral-500">{labels.length}</span>
+            </div>
+
+            <div className="space-y-1.5">
+              {labels.map((lbl) => (
+                <button
+                  key={lbl}
+                  onClick={() => { setCurrentView('label'); setSelectedLabel(lbl); if (window.innerWidth < 768) setSidebarOpen(false); }}
+                  className={`group w-full flex items-center justify-between p-2 rounded-2xl text-sm font-medium transition-all duration-150 active:scale-[0.97] ${
+                    currentView === 'label' && selectedLabel === lbl
+                      ? 'bg-orange-500/15 text-orange-700 dark:bg-orange-500/25 dark:text-orange-300 border-2 border-orange-500/40 shadow-sm font-semibold'
+                      : 'bg-white/80 dark:bg-[#18191d]/80 text-neutral-700 dark:text-neutral-200 border border-neutral-200/70 dark:border-neutral-800/80 hover:bg-neutral-100 dark:hover:bg-neutral-800 shadow-xs'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 truncate">
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      currentView === 'label' && selectedLabel === lbl ? 'bg-orange-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500'
+                    }`}>
+                      <Icons.Tag className="w-3.5 h-3.5" />
+                    </div>
+                    <span className={`truncate ${!sidebarOpen ? 'md:hidden' : ''}`}>{lbl}</span>
+                  </div>
+                  <span className={`text-xs opacity-50 group-hover:opacity-100 ${!sidebarOpen ? 'md:hidden' : ''}`}>#</span>
+                </button>
+              ))}
+
+              <button
+                onClick={() => { setIsEditLabelsOpen(true); if (window.innerWidth < 768) setSidebarOpen(false); }}
+                className="w-full flex items-center justify-center gap-2 p-2 rounded-xl text-xs font-semibold text-orange-600 dark:text-orange-400 border border-dashed border-orange-400/60 dark:border-orange-500/40 hover:bg-orange-50/50 dark:hover:bg-orange-500/10 active:scale-95 transition"
+              >
+                <Icons.Brush className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className={`${!sidebarOpen ? 'md:hidden' : ''}`}>Manage Labels</span>
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-neutral-200/80 dark:border-neutral-800" />
+
+            <button
+              onClick={() => { setCurrentView('archive'); setSelectedLabel(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
+              className={`group w-full flex items-center justify-between p-2.5 rounded-2xl text-sm font-medium transition-all duration-150 active:scale-[0.97] ${
+                currentView === 'archive'
+                  ? 'bg-orange-500/15 text-orange-700 dark:bg-orange-500/25 dark:text-orange-300 border-2 border-orange-500/40 shadow-sm font-semibold'
+                  : 'bg-white dark:bg-[#18191d] text-neutral-700 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 shadow-xs'
+              }`}
+            >
+              <div className="flex items-center gap-3 truncate">
+                <div className="w-8 h-8 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center flex-shrink-0 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80">
+                  <Icons.Archive className="w-4 h-4" />
+                </div>
+                <span className={`truncate ${!sidebarOpen ? 'md:hidden' : ''}`}>Archive</span>
+              </div>
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 text-neutral-400 opacity-50 group-hover:opacity-100 ${!sidebarOpen ? 'md:hidden' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+
+            <button
+              onClick={() => { setCurrentView('trash'); setSelectedLabel(null); if (window.innerWidth < 768) setSidebarOpen(false); }}
+              className={`group w-full flex items-center justify-between p-2.5 rounded-2xl text-sm font-medium transition-all duration-150 active:scale-[0.97] ${
+                currentView === 'trash'
+                  ? 'bg-red-500/15 text-red-700 dark:bg-red-500/25 dark:text-red-300 border-2 border-red-500/40 shadow-sm font-semibold'
+                  : 'bg-white dark:bg-[#18191d] text-neutral-700 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 shadow-xs'
+              }`}
+            >
+              <div className="flex items-center gap-3 truncate">
+                <div className="w-8 h-8 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center flex-shrink-0 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80">
+                  <Icons.Trash className="w-4 h-4" />
+                </div>
+                <span className={`truncate ${!sidebarOpen ? 'md:hidden' : ''}`}>Trash</span>
+              </div>
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 text-neutral-400 opacity-50 group-hover:opacity-100 ${!sidebarOpen ? 'md:hidden' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+
+            <div className="pt-2 border-t border-neutral-200/80 dark:border-neutral-800" />
+
+            <button
+              onClick={() => { setIsSettingsOpen(true); if (window.innerWidth < 768) setSidebarOpen(false); }}
+              className="group w-full flex items-center justify-between p-2.5 rounded-2xl text-sm font-medium bg-white dark:bg-[#18191d] text-neutral-700 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 shadow-xs active:scale-[0.97] transition-all duration-150"
+            >
+              <div className="flex items-center gap-3 truncate">
+                <div className="w-8 h-8 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center flex-shrink-0 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80">
+                  <Icons.Settings className="w-4 h-4" />
+                </div>
+                <span className={`truncate ${!sidebarOpen ? 'md:hidden' : ''}`}>Settings</span>
+              </div>
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 text-neutral-400 opacity-50 group-hover:opacity-100 ${!sidebarOpen ? 'md:hidden' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+
+            <button
+              onClick={() => { setIsDataModalOpen(true); if (window.innerWidth < 768) setSidebarOpen(false); }}
+              className="group w-full flex items-center justify-between p-2.5 rounded-2xl text-sm font-medium bg-white dark:bg-[#18191d] text-neutral-700 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 shadow-xs active:scale-[0.97] transition-all duration-150"
+            >
+              <div className="flex items-center gap-3 truncate">
+                <div className="w-8 h-8 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center flex-shrink-0 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80">
+                  <Icons.Database className="w-4 h-4" />
+                </div>
+                <span className={`truncate ${!sidebarOpen ? 'md:hidden' : ''}`}>Your Data</span>
+              </div>
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 text-neutral-400 opacity-50 group-hover:opacity-100 ${!sidebarOpen ? 'md:hidden' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+
+            <button
+              onClick={() => { setIsAboutModalOpen(true); if (window.innerWidth < 768) setSidebarOpen(false); }}
+              className="group w-full flex items-center justify-between p-2.5 rounded-2xl text-sm font-medium bg-white dark:bg-[#18191d] text-neutral-700 dark:text-neutral-200 border border-neutral-200/80 dark:border-neutral-800 hover:bg-neutral-100 dark:hover:bg-neutral-800 shadow-xs active:scale-[0.97] transition-all duration-150"
+            >
+              <div className="flex items-center gap-3 truncate">
+                <div className="relative w-8 h-8 rounded-xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center flex-shrink-0 text-neutral-600 dark:text-neutral-300 border border-neutral-200/80 dark:border-neutral-700/80">
+                  <Icons.Info className="w-4 h-4" />
+                  {updateBannerInfo && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-900" />}
+                </div>
+                <span className={`truncate ${!sidebarOpen ? 'md:hidden' : ''}`}>About</span>
+              </div>
+              <svg className={`w-3.5 h-3.5 flex-shrink-0 text-neutral-400 opacity-50 group-hover:opacity-100 ${!sidebarOpen ? 'md:hidden' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+          </div>
+        </aside>
+
+        <main className="flex-1 p-3.5 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0">
+          {onThisDayNote && (
+            <div className="mb-6 p-4 rounded-3xl bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/5 border border-orange-500/20 flex items-center justify-between gap-4 animate-popIn">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-2xl">✨</span>
+                <div className="truncate">
+                  <span className="text-xs font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400 block">On this day memory</span>
+                  <p className="text-sm font-semibold truncate text-neutral-800 dark:text-neutral-200">
+                    {onThisDayNote.title || onThisDayNote.content || 'Untitled memory'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDismissedMemory(true)}
+                className="text-xs text-neutral-400 hover:text-neutral-600 px-2 py-1"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pb-4 border-b border-neutral-200/60 dark:border-neutral-800/80 mb-6 gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setIsSelectMode(!isSelectMode); setSelectedNoteIds([]); }}
+                className={`px-3.5 py-2 rounded-xl text-sm font-semibold transition ${isSelectMode ? 'bg-orange-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200'}`}
+              >
+                {isSelectMode ? 'Cancel Select' : 'Select'}
+              </button>
+
+              <div className="flex items-center gap-1 bg-neutral-100 dark:bg-neutral-800 p-1 rounded-xl text-sm">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-1.5 rounded-lg transition ${viewMode === 'grid' ? 'bg-white dark:bg-neutral-700 shadow-sm text-orange-600' : 'text-neutral-400'}`}
+                  title="Grid View"
+                >
+                  <Icons.Grid className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`p-1.5 rounded-lg transition ${viewMode === 'list' ? 'bg-white dark:bg-neutral-700 shadow-sm text-orange-600' : 'text-neutral-400'}`}
+                  title="List View"
+                >
+                  <Icons.List className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-neutral-400">Sort by:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="text-sm font-semibold bg-neutral-100 dark:bg-neutral-800 border-none px-3.5 py-2 rounded-xl outline-none cursor-pointer text-neutral-800 dark:text-neutral-200"
+              >
+                <option value="updated">Date Updated</option>
+                <option value="created">Date Created</option>
+                <option value="title">Alphabetical</option>
+                <option value="color">Color</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-8">
+            {pinnedNotes.length > 0 && (
+              <div>
+                <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 block px-1">
+                  Pinned ({pinnedNotes.length})
+                </span>
+                <div className={viewMode === 'grid' ? "columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 space-y-4" : "space-y-3"}>
+                  {pinnedNotes.map((note) => (
+                    <NoteCard
+                      key={note.id}
+                      note={note}
+                      isDark={isDarkMode}
+                      viewMode={viewMode}
+                      isSelected={selectedNoteIds.includes(note.id)}
+                      isSelectMode={isSelectMode}
+                      onToggleSelect={() => {
+                        setSelectedNoteIds(prev => prev.includes(note.id) ? prev.filter(id => id !== note.id) : [...prev, note.id]);
+                      }}
+                      onOpenDetail={(n) => setActiveEditingNote(n)}
+                      onPin={() => handleSaveNote({ ...note, isPinned: !note.isPinned })}
+                      onArchive={() => handleArchiveNote(note)}
+                      onTrash={() => handleTrashNote(note)}
+                      onRestore={() => handleRestoreNote(note)}
+                      onDeletePermanent={async () => {
+                        await dbDeleteNotePermanently(note.id);
+                        setNotes(await dbGetAllNotes());
+                      }}
+                      onChangeColor={(c) => handleSaveNote({ ...note, color: c })}
+                      onDuplicate={() => handleSaveNote({ ...note, id: null, title: (note.title || '') + ' (Copy)' })}
+                      onShare={() => {
+                        const txt = (note.title ? note.title + '\n' : '') + (note.content || '');
+                        if (navigator.share) navigator.share({ text: txt }).catch(() => {});
+                        else {
+                          navigator.clipboard?.writeText(txt);
+                          showToast('Note copied to clipboard!');
+                        }
+                      }}
+                      onToggleChecklist={() => {
+                        if (note.type === 'checklist') {
+                          handleSaveNote({ ...note, type: 'text', content: (note.checklist || []).map(i => i.text).join('\n'), checklist: [] });
+                        } else {
+                          const items = (note.content || '').split('\n').filter(Boolean).map((t, idx) => ({ id: 'it_' + idx, text: t, checked: false }));
+                          handleSaveNote({ ...note, type: 'checklist', checklist: items, content: '' });
+                        }
+                      }}
+                      onSetReminder={(r) => handleSaveNote({ ...note, reminder: r })}
+                      onOpenLightbox={setLightboxImage}
+                      onOpenDrawingModal={(cb) => { setDrawingCallback(() => cb); setIsDrawingModalOpen(true); }}
+                      labels={labels}
+                      onToggleNoteLabel={(lbl) => {
+                        const cur = note.tags || [];
+                        const next = cur.includes(lbl) ? cur.filter(t => t !== lbl) : [...cur, lbl];
+                        handleSaveNote({ ...note, tags: next });
+                      }}
+                      onSetMood={(m) => handleSaveNote({ ...note, mood: m })}
+                      onUpdateNote={handleSaveNote}
+                      isTrashView={currentView === 'trash'}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {otherNotes.length > 0 ? (
+              <div>
+                {pinnedNotes.length > 0 && (
+                  <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 block px-1">
+                    Others
+                  </span>
+                )}
+                <div className={viewMode === 'grid' ? "columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 space-y-4" : "space-y-3"}>
+                  {otherNotes.map((note) => (
+                    <NoteCard
+                      key={note.id}
+                      note={note}
+                      isDark={isDarkMode}
+                      viewMode={viewMode}
+                      isSelected={selectedNoteIds.includes(note.id)}
+                      isSelectMode={isSelectMode}
+                      onToggleSelect={() => {
+                        setSelectedNoteIds(prev => prev.includes(note.id) ? prev.filter(id => id !== note.id) : [...prev, note.id]);
+                      }}
+                      onOpenDetail={(n) => setActiveEditingNote(n)}
+                      onPin={() => handleSaveNote({ ...note, isPinned: !note.isPinned })}
+                      onArchive={() => handleArchiveNote(note)}
+                      onTrash={() => handleTrashNote(note)}
+                      onRestore={() => handleRestoreNote(note)}
+                      onDeletePermanent={async () => {
+                        await dbDeleteNotePermanently(note.id);
+                        setNotes(await dbGetAllNotes());
+                      }}
+                      onChangeColor={(c) => handleSaveNote({ ...note, color: c })}
+                      onDuplicate={() => handleSaveNote({ ...note, id: null, title: (note.title || '') + ' (Copy)' })}
+                      onShare={() => {
+                        const txt = (note.title ? note.title + '\n' : '') + (note.content || '');
+                        if (navigator.share) navigator.share({ text: txt }).catch(() => {});
+                        else {
+                          navigator.clipboard?.writeText(txt);
+                          showToast('Note copied to clipboard!');
+                        }
+                      }}
+                      onToggleChecklist={() => {
+                        if (note.type === 'checklist') {
+                          handleSaveNote({ ...note, type: 'text', content: (note.checklist || []).map(i => i.text).join('\n'), checklist: [] });
+                        } else {
+                          const items = (note.content || '').split('\n').filter(Boolean).map((t, idx) => ({ id: 'it_' + idx, text: t, checked: false }));
+                          handleSaveNote({ ...note, type: 'checklist', checklist: items, content: '' });
+                        }
+                      }}
+                      onSetReminder={(r) => handleSaveNote({ ...note, reminder: r })}
+                      onOpenLightbox={setLightboxImage}
+                      onOpenDrawingModal={(cb) => { setDrawingCallback(() => cb); setIsDrawingModalOpen(true); }}
+                      labels={labels}
+                      onToggleNoteLabel={(lbl) => {
+                        const cur = note.tags || [];
+                        const next = cur.includes(lbl) ? cur.filter(t => t !== lbl) : [...cur, lbl];
+                        handleSaveNote({ ...note, tags: next });
+                      }}
+                      onSetMood={(m) => handleSaveNote({ ...note, mood: m })}
+                      onUpdateNote={handleSaveNote}
+                      isTrashView={currentView === 'trash'}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : pinnedNotes.length === 0 && (
+              <div className="text-center py-20">
+                <div className="w-16 h-16 rounded-3xl bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500 flex items-center justify-center mx-auto mb-4 text-2xl">
+                  📝
+                </div>
+                <h3 className="text-base font-bold text-neutral-700 dark:text-neutral-300 mb-1">
+                  {searchQuery ? 'No matching notes found' : 'No notes yet'}
+                </h3>
+                <p className="text-xs text-neutral-400 max-w-sm mx-auto">
+                  {searchQuery ? 'Try another keyword or clear the search query.' : 'Tap the + button below to create your first note or memo.'}
+                </p>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+
+      <SpeedDialFAB
+        onNewNote={() => handleCreateNewNote('text')}
+        onNewChecklist={() => handleCreateNewNote('checklist')}
+        onNewVoice={() => setIsVoiceRecorderOpen(true)}
+        onNewDraw={() => {
+          setDrawingCallback(() => (img) => handleCreateNewNote('text', { images: [img] }));
+          setIsDrawingModalOpen(true);
+        }}
+        onOpenTemplate={() => handleCreateNewNote('text', { title: TEMPLATES[0].title, content: TEMPLATES[0].content })}
+      />
+
+      {isSelectMode && selectedNoteIds.length > 0 && (
+        <div className="fixed bottom-6 inset-x-0 z-40 max-w-md mx-auto px-4 animate-popIn">
+          <div className="p-3.5 px-5 rounded-3xl bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-2xl flex items-center justify-between gap-4">
+            <span className="text-sm font-bold">{selectedNoteIds.length} selected</span>
+            <div className="flex items-center gap-3.5">
+              <button onClick={handleBulkArchive} className="text-xs font-semibold hover:text-orange-500">Archive</button>
+              <button onClick={handleBulkTrash} className="text-xs font-semibold text-red-500 hover:underline">Delete</button>
+              <ColorPickerPopover currentColor="default" onSelectColor={handleBulkColor} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {undoState && (
+        <div className="fixed bottom-6 left-6 z-50 p-3.5 px-4 rounded-2xl bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900 shadow-2xl flex items-center gap-4 text-xs font-medium animate-popIn">
+          <span>{undoState.message}</span>
+          <button
+            onClick={undoState.undoAction}
+            className="px-3 py-1 rounded-xl bg-orange-600 text-white font-bold hover:bg-orange-700 transition text-xs"
+          >
+            Undo
+          </button>
+        </div>
+      )}
+
+      <NoteDetailModal
+        note={activeEditingNote}
+        isDark={isDarkMode}
+        isOpen={Boolean(activeEditingNote)}
+        onClose={() => setActiveEditingNote(null)}
+        onSave={handleSaveNote}
+        onTrash={handleTrashNote}
+        onOpenDrawingModal={(cb) => { setDrawingCallback(() => cb); setIsDrawingModalOpen(true); }}
+        onOpenLightbox={setLightboxImage}
+        labels={labels}
+      />
+
+      <DrawingModal
+        isOpen={isDrawingModalOpen}
+        onClose={() => setIsDrawingModalOpen(false)}
+        onSaveDrawing={(dataUrl) => drawingCallback && drawingCallback(dataUrl)}
+      />
+
+      <CommandPaletteModal
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        notes={notes}
+        onSelectAction={(actId) => {
+          if (actId === 'new_text') handleCreateNewNote('text');
+          else if (actId === 'new_checklist') handleCreateNewNote('checklist');
+          else if (actId === 'new_voice') setIsVoiceRecorderOpen(true);
+          else if (actId === 'toggle_theme') setIsDarkMode(!isDarkMode);
+          else if (actId === 'view_archive') setCurrentView('archive');
+          else if (actId === 'view_trash') setCurrentView('trash');
+          else if (actId === 'open_settings') setIsSettingsOpen(true);
+        }}
+        onOpenNote={(n) => setActiveEditingNote(n)}
+      />
+
+      <EditLabelsModal
+        isOpen={isEditLabelsOpen}
+        onClose={() => setIsEditLabelsOpen(false)}
+        labels={labels}
+        onAddLabel={(l) => saveLabels([...labels, l])}
+        onRenameLabel={(oldL, newL) => {
+          if (!newL) return;
+          saveLabels(labels.map(l => l === oldL ? newL : l));
+        }}
+        onDeleteLabel={(l) => saveLabels(labels.filter(item => item !== l))}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        notes={notes}
+        accentColor={accentColor}
+        onSelectAccent={applyAccent}
+        showOnThisDay={showOnThisDay}
+        onToggleOnThisDay={toggleOnThisDayPref}
+      />
+
+      <YourDataModal
+        isOpen={isDataModalOpen}
+        onClose={() => setIsDataModalOpen(false)}
+        notes={notes}
+        onExportNotes={handleExportJSON}
+        onImportNotes={handleImportJSON}
+      />
+
+      <AboutModal
+        isOpen={isAboutModalOpen}
+        onClose={() => setIsAboutModalOpen(false)}
+        updateBannerInfo={updateBannerInfo}
+        onCheckUpdates={() => checkForUpdates(true)}
+        onTriggerDownload={handleTriggerDownload}
+      />
+
+      {isVoiceRecorderOpen && (
+        <VoiceRecorderModal
+          isDark={isDarkMode}
+          onClose={() => setIsVoiceRecorderOpen(false)}
+          onSaveVoiceNote={async (vData) => {
+            await handleSaveNote(vData);
+            setIsVoiceRecorderOpen(false);
+          }}
+        />
+      )}
+
+      {lightboxImage && (
+        <div onClick={() => setLightboxImage(null)} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <img src={lightboxImage} alt="Large preview" className="max-w-full max-h-[85vh] object-contain rounded-3xl" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <AppErrorBoundary>
+    <App />
+  </AppErrorBoundary>
+);
