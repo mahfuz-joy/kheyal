@@ -63,7 +63,7 @@ jobs:
           /NgNXKyakNXcyDBHuvzGetWeU6iavq+s1BRVzon/ZBwJxB1O0/K1NXkCjwlV3iUi6j6RZp835+Xy
           eXRTLm4p4KOQfTCv/qg5ZqAC1S6PZu/NIEm34g0s4CWRD/H5gg7HCd7mje17xg/ypWEdWUqBSiDE
           Q4j8s8d8olAs/bQpEBAMXq+59ccFLFw8YlRQMOonUwAq6O9jsayPJmGbMYaDla66VOljMOVoyugR
-          WDFSMC0GCSqGSIb3DQEJFDEgHh4AYQBuAGQAcgBvAGkAZABkAGUAYgB1AGcAa2BlAHkwIQYJKoZI
+          WDFSMC0GCSqGSIb3DQEJFDEgHh4AYQBuAGQAcgBvAGkAZABkAGUAYgB1AGcAawBlAHkwIQYJKoZI
           hvcNAQkVMRQEElRpbWUgMTc4OTExNTQ2Mjg2NTCCBHEGCSqGSIb3DQEHBqCCBGIwggReAgEAMIIE
           VwYJKoZIhvcNAQcBMGYGCSqGSIb3DQEFDTBZMDgGCSqGSIb3DQEFDDArBBQR+saf14Ffr2T+M2R9
           r62VmBp4mQICJxACASAwDAYIKoZIhvcNAgkFADAdBglghkgBZQMEASoEEBT0h221Xp/Hp9SRTY7h
@@ -87,7 +87,7 @@ jobs:
           50UI71E/Zxtk+QHiJ97d8nsNqyeKBa0DzNiQoL4wTTAxMA0GCWCGSAFlAwQCAQUABCCXFlI/Ea+J
           zs8Ohs+jTUGPzHBJaNYEYl6byQzt7KNUlQQU+R2f8U2lbXvTUkWmMq9BCvUQ5JICAicQ
           EOF
-
+       [cite: 1]
       - name: Prepare Web Bundle & Offline Assets
         run: |
           mkdir -p www/js www/css assets
@@ -98,9 +98,11 @@ jobs:
           fi
           echo "Building version: $TAG_VER"
 
-          sed -i "s/const APP_VERSION = \".*\";/const APP_VERSION = \"$TAG_VER\";/g" index.html
-          echo "Version line after replace:"[cite: 1]
-          grep "APP_VERSION" index.html[cite: 1]
+          # Target app.jsx directly so esbuild bundles the updated version constant
+          sed -i "s/const APP_VERSION = \".*\";/const APP_VERSION = \"$TAG_VER\";/g" app.jsx
+          echo "Verified app.jsx version line:"
+          grep "APP_VERSION" app.jsx
+
           cp index.html www/index.html
 
           npx esbuild app.jsx --bundle --minify --loader:.jsx=jsx --target=es2020 --outfile=www/js/app.bundle.js --global-name=KheyalApp
@@ -173,7 +175,7 @@ jobs:
           node assets/make-icon.js
         env:
           TAG_VER: ${{ github.ref_name }}
-
+       [cite: 1]
       - name: Create Capacitor Config
         run: |
           cat > capacitor.config.json << 'EOF'
@@ -183,11 +185,11 @@ jobs:
             "webDir": "www"
           }
           EOF
-
+       [cite: 1]
       - name: Add Android Platform
         run: |
           npx cap add android
-
+       [cite: 1]
       - name: Inject Keystore, Permissions & Build Config
         run: |
           TAG_VER="${GITHUB_REF_NAME#v}"
@@ -218,15 +220,15 @@ jobs:
               }
           }
           EOF
-
+       [cite: 1]
       - name: Generate Native App Icons & Splash
         run: |
           npx @capacitor/assets generate --android
-
+       [cite: 1]
       - name: Sync Web Files
         run: |
           npx cap sync android
-
+       [cite: 1]
       - name: Fix Duplicate Kotlin Classes
         run: |
           cat >> android/build.gradle << 'EOF'
@@ -240,17 +242,17 @@ jobs:
               }
           }
           EOF
-
+       [cite: 1]
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
-
+       [cite: 1]
       - name: Prepare APK
         run: |
           cp android/app/build/outputs/apk/release/app-release-unsigned.apk kheyal.apk 2>/dev/null || cp android/app/build/outputs/apk/release/app-release.apk kheyal.apk || cp android/app/build/outputs/apk/debug/app-debug.apk kheyal.apk
-
+       [cite: 1]
       - name: Upload APK to Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
@@ -258,10 +260,10 @@ jobs:
           files: kheyal.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+       [cite: 1]
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kheyal.apk
           path: kheyal.apk
-```[cite: 1]
+       [cite: 1]
