@@ -2454,19 +2454,20 @@ function App() {
 
   const checkForUpdates = async (alertIfUpToDate = false) => {
     try {
-      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-        headers: { 'Accept': 'application/vnd.github.v3+json' },
-        cache: 'no-store'
+      const res = await fetch(`https://github.com/${GITHUB_REPO}/releases/latest`, {
+        cache: 'no-store',
+        redirect: 'follow'
       });
 
       if (res.ok) {
-        const data = await res.json();
-        const latestTag = (data.tag_name || '').replace(/^v/, '').trim();
+        const finalUrl = res.url;
+        const match = finalUrl.match(/\/tag\/(.+)$/);
+        const latestTag = match ? decodeURIComponent(match[1]).replace(/^v/, '').trim() : '';
         const dismissed = localStorage.getItem('notes_dismissed_version');
         const isNewer = latestTag && compareVersions(latestTag, APP_VERSION) > 0;
 
         if (isNewer && dismissed !== latestTag) {
-          setUpdateBannerInfo({ version: latestTag, url: data.html_url });
+          setUpdateBannerInfo({ version: latestTag, url: finalUrl });
           if (alertIfUpToDate) showToast(`Update v${latestTag} available! Click download above.`);
         } else {
           setUpdateBannerInfo(null);
@@ -3386,3 +3387,4 @@ root.render(
     <App />
   </AppErrorBoundary>
 );
+```[cite: 2]
