@@ -2205,6 +2205,11 @@ function NoteCard({
             <audio
               ref={audioRef}
               src={audioUrl}
+              onLoadedMetadata={() => {
+                if (audioRef.current && isFinite(audioRef.current.duration) && audioRef.current.duration > 0) {
+                  setAudioDuration(audioRef.current.duration);
+                }
+              }}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
               onTimeUpdate={() => audioRef.current && setCurrentTime(audioRef.current.currentTime)}
@@ -2427,9 +2432,9 @@ function App() {
   const [updateBannerInfo, setUpdateBannerInfo] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
 
-    useEffect(() => {
-  if (!window.Capacitor || !window.Capacitor.isNativePlatform?.()) return;
-  const handler = CapacitorApp.addListener('backButton', () => {
+  useEffect(() => {
+    if (!window.Capacitor || !window.Capacitor.isNativePlatform?.()) return;
+    const handler = CapacitorApp.addListener('backButton', () => {
       if (activeEditingNote) { setActiveEditingNote(null); return; }
       if (isSettingsOpen) { setIsSettingsOpen(false); return; }
       if (isDataModalOpen) { setIsDataModalOpen(false); return; }
@@ -2453,39 +2458,59 @@ function App() {
     window.open(DIRECT_APK_URL, '_system');
   };
 
+  const applyLatestTag = (latestTag, finalUrl, alertIfUpToDate) => {
+    const dismissed = localStorage.getItem('notes_dismissed_version');
+    const isNewer = latestTag && compareVersions(latestTag, APP_VERSION) > 0;
+
+    if (isNewer && dismissed !== latestTag) {
+      setUpdateBannerInfo({ version: latestTag, url: finalUrl });
+      if (alertIfUpToDate) showToast(`Update v${latestTag} available! Click download above.`);
+    } else {
+      setUpdateBannerInfo(null);
+      if (alertIfUpToDate) {
+        showToast('App is already on the latest version!');
+      }
+    }
+  };
+
   const checkForUpdates = async (alertIfUpToDate = false) => {
     try {
-      // Hit public GitHub release redirect instead of rate-limited api.github.com
-      const res = await fetch(`https://github.com/${GITHUB_REPO}/releases/latest`, {
+      // Preferred: GitHub's actual API, returns clean JSON with the tag name
+      const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
         method: 'GET',
         cache: 'no-store',
-        redirect: 'follow'
+        headers: { Accept: 'application/vnd.github+json' }
       });
 
       if (res.ok) {
-        // final URL resolves to: https://github.com/:owner/:repo/releases/tag/vX.Y.Z
-        const finalUrl = res.url || '';
-        const match = finalUrl.match(/\/tag\/(.+)$/);
-        const latestTag = match ? decodeURIComponent(match[1]).replace(/^v/i, '').split(/[/?#]/)[0].trim() : '';
-
-        const dismissed = localStorage.getItem('notes_dismissed_version');
-        const isNewer = latestTag && compareVersions(latestTag, APP_VERSION) > 0;
-
-        if (isNewer && dismissed !== latestTag) {
-          setUpdateBannerInfo({ version: latestTag, url: finalUrl });
-          if (alertIfUpToDate) showToast(`Update v${latestTag} available! Click download above.`);
-        } else {
-          setUpdateBannerInfo(null);
-          if (alertIfUpToDate) {
-            showToast('App is already on the latest version!');
-          }
-        }
-      } else if (alertIfUpToDate) {
-        showToast('Could not check for updates right now.');
+        const data = await res.json();
+        const latestTag = (data.tag_name || '').replace(/^v/i, '').trim();
+        const finalUrl = data.html_url || `https://github.com/${GITHUB_REPO}/releases/latest`;
+        applyLatestTag(latestTag, finalUrl, alertIfUpToDate);
+        return;
       }
-    } catch (e) {
-      if (alertIfUpToDate) {
-        showToast('Network error. Check internet connection.');
+      throw new Error(`API responded with ${res.status}`);
+    } catch (apiError) {
+      // Fallback: scrape the redirect URL in case api.github.com is unreachable
+      try {
+        const res = await fetch(`https://github.com/${GITHUB_REPO}/releases/latest`, {
+          method: 'GET',
+          cache: 'no-store',
+          redirect: 'follow'
+        });
+
+        if (res.ok) {
+          const finalUrl = res.url || '';
+          const match = finalUrl.match(/\/tag\/(.+)$/);
+          const latestTag = match ? decodeURIComponent(match[1]).replace(/^v/i, '').split(/[/?#]/)[0].trim() : '';
+          applyLatestTag(latestTag, finalUrl, alertIfUpToDate);
+        } else if (alertIfUpToDate) {
+          showToast('Could not check for updates right now.');
+        }
+      } catch (e) {
+        if (alertIfUpToDate) {
+          showToast('Network error. Check internet connection.');
+        }
       }
     }
   };
@@ -2560,18 +2585,26 @@ function App() {
     setNotes(nextNotes);
     nextNotes.forEach(n => dbSaveNote(n));
 
-    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
     setUndoState({
       message,
       undoAction: () => {
         setNotes(previousNotes);
         previousNotes.forEach(n => dbSaveNote(n));
         setUndoState(null);
+        if (undoTimerRef.current) {
+          clearTimeout(undoTimerRef.current);
+          undoTimerRef.current = null;
+        }
       }
     });
 
     undoTimerRef.current = setTimeout(() => {
       setUndoState(null);
+      undoTimerRef.current = null;
     }, 5000);
   };
 
@@ -3144,7 +3177,7 @@ function App() {
                         setNotes(await dbGetAllNotes());
                       }}
                       onChangeColor={(c) => handleSaveNote({ ...note, color: c })}
-                      onDuplicate={() => handleSaveNote({ ...note, id: null, title: (note.title || '') + ' (Copy)' })}
+                      onDuplicate={() => handleSaveNote({ ...note, id: null, title: (note.title || '') + ' (Copy)', createdAt: Date.now(), isPinned: false })}
                       onShare={() => {
                         const txt = (note.title ? note.title + '\n' : '') + (note.content || '');
                         if (navigator.share) navigator.share({ text: txt }).catch(() => {});
@@ -3208,7 +3241,7 @@ function App() {
                         setNotes(await dbGetAllNotes());
                       }}
                       onChangeColor={(c) => handleSaveNote({ ...note, color: c })}
-                      onDuplicate={() => handleSaveNote({ ...note, id: null, title: (note.title || '') + ' (Copy)' })}
+                      onDuplicate={() => handleSaveNote({ ...note, id: null, title: (note.title || '') + ' (Copy)', createdAt: Date.now(), isPinned: false })}
                       onShare={() => {
                         const txt = (note.title ? note.title + '\n' : '') + (note.content || '');
                         if (navigator.share) navigator.share({ text: txt }).catch(() => {});
@@ -3334,10 +3367,34 @@ function App() {
         labels={labels}
         onAddLabel={(l) => saveLabels([...labels, l])}
         onRenameLabel={(oldL, newL) => {
-          if (!newL) return;
+          if (!newL || newL === oldL) return;
           saveLabels(labels.map(l => l === oldL ? newL : l));
+          const changedNotes = [];
+          const updatedNotes = notes.map(n => {
+            if ((n.tags || []).includes(oldL)) {
+              const updated = { ...n, tags: n.tags.map(t => t === oldL ? newL : t) };
+              changedNotes.push(updated);
+              return updated;
+            }
+            return n;
+          });
+          setNotes(updatedNotes);
+          changedNotes.forEach(n => dbSaveNote(n));
         }}
-        onDeleteLabel={(l) => saveLabels(labels.filter(item => item !== l))}
+        onDeleteLabel={(l) => {
+          saveLabels(labels.filter(item => item !== l));
+          const changedNotes = [];
+          const updatedNotes = notes.map(n => {
+            if ((n.tags || []).includes(l)) {
+              const updated = { ...n, tags: n.tags.filter(t => t !== l) };
+              changedNotes.push(updated);
+              return updated;
+            }
+            return n;
+          });
+          setNotes(updatedNotes);
+          changedNotes.forEach(n => dbSaveNote(n));
+        }}
       />
 
       <SettingsModal
