@@ -2427,8 +2427,9 @@ function App() {
   const [updateBannerInfo, setUpdateBannerInfo] = useState(null);
   const [toastMsg, setToastMsg] = useState(null);
 
-  useEffect(() => {
-    const handler = CapacitorApp.addListener('backButton', () => {
+    useEffect(() => {
+  if (!window.Capacitor || !window.Capacitor.isNativePlatform?.()) return;
+  const handler = CapacitorApp.addListener('backButton', () => {
       if (activeEditingNote) { setActiveEditingNote(null); return; }
       if (isSettingsOpen) { setIsSettingsOpen(false); return; }
       if (isDataModalOpen) { setIsDataModalOpen(false); return; }
