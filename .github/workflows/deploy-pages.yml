@@ -1,0 +1,77 @@
+name: Deploy Web Preview to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: |
+          npm init -y
+          npm install react react-dom @capacitor/core @capacitor/app esbuild tailwindcss@^3
+
+      - name: Build Web Bundle
+        run: |
+          mkdir -p www/js www/css
+          cp index.html www/index.html
+          npx esbuild app.jsx --bundle --minify --loader:.jsx=jsx --target=es2020 --outfile=www/js/app.bundle.js --global-name=KheyalApp
+
+          cat > tailwind.config.js << 'EOF'
+          module.exports = {
+            darkMode: 'class',
+            content: ['./www/index.html', './app.jsx'],
+            theme: {
+              extend: {
+                colors: {
+                  accent: {
+                    DEFAULT: 'var(--accent-color, #ea580c)',
+                    hover: 'var(--accent-hover, #c2410c)',
+                    light: 'var(--accent-light, rgba(234, 88, 12, 0.12))',
+                    ring: 'var(--accent-ring, rgba(234, 88, 12, 0.35))',
+                  }
+                }
+              },
+            },
+          }
+          EOF
+
+          cat > input.css << 'EOF'
+          @tailwind base;
+          @tailwind components;
+          @tailwind utilities;
+          EOF
+
+          npx tailwindcss -i ./input.css -o ./www/css/tailwind.min.css --minify
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./www
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
